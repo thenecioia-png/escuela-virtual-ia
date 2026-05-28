@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target } from 'lucide-react';
+import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import ProgressRing from './ProgressRing';
 
-export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onViewProgress }) {
-  const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars } = adaptiveEngine;
+export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onViewProgress, onOpenAccessibility }) {
+  const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars, adaptations = [], emotionalState = 'neutral' } = adaptiveEngine;
+  const [showModelInfo, setShowModelInfo] = useState(false);
 
   const getOverallProgress = () => {
     const subjects = Object.keys(progress.subjectProgress);
@@ -21,8 +23,29 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
   const getSubjectProgressPercent = (subjectId) => {
     const levels = progress.subjectProgress[subjectId] || {};
     const total = Object.values(levels).reduce((a, b) => a + b, 0);
-    const max = 5 * 3; // 5 levels, ~3 lessons each
+    const max = 5 * 3;
     return Math.min((total / max) * 100, 100);
+  };
+
+  const modelLabels = {
+    adaptive: { name: 'Adaptativo IA', emoji: '🤖', desc: 'La app elige el mejor método automáticamente' },
+    montessori: { name: 'Montessori', emoji: '🌱', desc: 'Explora con las manos y a tu propio ritmo' },
+    flipped: { name: 'Aula Invertida', emoji: '🔄', desc: 'Descubre primero, practica después' },
+    gamified: { name: 'Gamificación', emoji: '🎮', desc: 'Misiones, puntos y desafíos divertidos' },
+    udl: { name: 'Diseño Universal', emoji: '🌍', desc: 'Muchas formas de aprender lo mismo' },
+    multisensory: { name: 'Multi-sensorial', emoji: '✨', desc: 'Ver, oír, tocar y moverse juntos' },
+  };
+
+  const currentModel = modelLabels[profile.pedagogicalModel] || modelLabels.adaptive;
+
+  // Mensaje emocional adaptativo
+  const getEmotionalMessage = () => {
+    if (emotionalState === 'frustrated') return 'Vamos a hacerlo más fácil hoy. Un pasito a la vez. 🤗';
+    if (emotionalState === 'struggling') return 'Estoy aquí para ayudarte. Tú puedes. 💪';
+    const lastCheck = profile.emotionalHistory?.slice(-1)[0];
+    if (lastCheck?.mood === 'happy') return '¡Me alegra verte feliz! Vamos a aprender algo genial. 🌟';
+    if (lastCheck?.mood === 'tired') return 'Hoy vamos tranquilitos. Sin prisa. 🐢';
+    return `¡Hola, ${profile.name}! ¿Listo/a para una aventura de aprendizaje? 🚀`;
   };
 
   return (
@@ -36,11 +59,34 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
         <div className="text-6xl animate-float">{profile.avatar}</div>
         <div className="flex-1 text-center sm:text-left">
           <h2 className="text-2xl font-black text-forest-900">
-            ¡Hola, {profile.name}! 🌟
+            {getEmotionalMessage()}
           </h2>
-          <p className="text-forest-600 mt-1">
-            Estilo de aprendizaje: <span className="font-bold text-forest-700 capitalize">{profile.learningStyle}</span>
-          </p>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <span className="text-sm text-forest-600">
+              Estilo: <span className="font-bold text-forest-700 capitalize">{profile.learningStyle}</span>
+            </span>
+            <button
+              onClick={() => setShowModelInfo(!showModelInfo)}
+              className="flex items-center gap-1 text-xs font-bold bg-forest-50 hover:bg-forest-100 rounded-full px-2 py-1 transition-colors"
+            >
+              <Brain size={12} className="text-forest-500" />
+              {currentModel.emoji} {currentModel.name}
+            </button>
+          </div>
+          {showModelInfo && (
+            <motion.p
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              className="text-sm text-forest-500 mt-2 bg-forest-50 rounded-xl p-3"
+            >
+              {currentModel.desc}
+              {adaptations.length > 0 && (
+                <span className="block mt-1 text-xs text-forest-400">
+                  Adaptaciones activas: {adaptations.map(a => a.replace(/_/g, ' ')).join(', ')}
+                </span>
+              )}
+            </motion.p>
+          )}
           {weakAreas.length > 0 && (
             <p className="text-sm text-berry-500 mt-2 font-semibold">
               💪 Practiquemos un poco más: {weakAreas.map((w) => SUBJECTS.find((s) => s.id === w)?.name).join(', ')}
@@ -52,6 +98,42 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           <span className="text-xs font-bold text-forest-500 mt-2">Tu avance</span>
         </div>
       </motion.div>
+
+      {/* Accessibility quick actions */}
+      {(profile.accessibility?.dyslexicFont || profile.accessibility?.largeText || profile.accessibility?.highContrast || profile.accessibility?.reduceMotion) && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-wrap gap-2"
+        >
+          <span className="text-xs font-bold text-forest-400 self-center mr-1">Adaptaciones activas:</span>
+          {profile.accessibility?.dyslexicFont && (
+            <span className="text-xs font-bold bg-sky-50 text-sky-600 rounded-full px-2 py-1 flex items-center gap-1">
+              <Accessibility size={10} /> Fuente dislexia
+            </span>
+          )}
+          {profile.accessibility?.largeText && (
+            <span className="text-xs font-bold bg-amber-50 text-amber-600 rounded-full px-2 py-1">🔍 Texto grande</span>
+          )}
+          {profile.accessibility?.highContrast && (
+            <span className="text-xs font-bold bg-emerald-50 text-emerald-600 rounded-full px-2 py-1">👁️ Alto contraste</span>
+          )}
+          {profile.accessibility?.reduceMotion && (
+            <span className="text-xs font-bold bg-violet-50 text-violet-600 rounded-full px-2 py-1">✋ Sin animación</span>
+          )}
+          {profile.accessibility?.reduceSound && (
+            <span className="text-xs font-bold bg-rose-50 text-rose-600 rounded-full px-2 py-1 flex items-center gap-1">
+              <VolumeX size={10} /> Silencio
+            </span>
+          )}
+          <button
+            onClick={onOpenAccessibility}
+            className="text-xs font-bold text-forest-500 hover:text-forest-700 underline ml-auto"
+          >
+            Cambiar ajustes
+          </button>
+        </motion.div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -83,6 +165,11 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           <div className="flex items-center gap-2 mb-4">
             <Zap size={18} className="text-sun-500" />
             <h3 className="text-lg font-black text-forest-900">Recomendado para ti</h3>
+            {emotionalState !== 'neutral' && (
+              <span className="text-xs font-bold bg-rose-50 text-rose-500 rounded-full px-2 py-0.5">
+                Adaptado a tu estado
+              </span>
+            )}
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {recommendedPath.map((lesson, i) => {
@@ -109,6 +196,9 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
                       <BookOpen size={12} className="inline mr-1" />
                       Empezar
                     </div>
+                    {lesson.adaptations?.includes('reduce_difficulty') && (
+                      <span className="text-xs bg-rose-50 text-rose-500 rounded-lg px-2 py-1 font-bold">Más fácil</span>
+                    )}
                   </div>
                 </motion.button>
               );
@@ -191,6 +281,17 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           </div>
         </div>
       )}
+
+      {/* Emotional check-in quick button */}
+      <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
+        onClick={() => { /* El layout maneja esto */ }}
+        className="w-full glass-card rounded-2xl p-4 flex items-center justify-center gap-2 text-forest-600 hover:bg-rose-50 transition-colors"
+      >
+        <Smile size={18} className="text-rose-400" />
+        <span className="text-sm font-bold">¿Cómo te sientes? Cuéntame en Papá/Mamá →</span>
+      </motion.button>
     </div>
   );
 }

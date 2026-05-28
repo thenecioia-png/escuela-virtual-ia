@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
-import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen } from 'lucide-react';
+import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 
-export default function ParentDashboard({ profile, progress }) {
+export default function ParentDashboard({ profile, progress, adaptiveEngine, onOpenAccessibility }) {
   const getSubjectProgress = (subjectId) => {
     const levels = progress.subjectProgress[subjectId] || {};
     const total = Object.values(levels).reduce((a, b) => a + b, 0);
@@ -20,6 +20,7 @@ export default function ParentDashboard({ profile, progress }) {
 
   const weakSubjects = getWeakSubjects();
   const strongSubjects = getStrongSubjects();
+  const needs = profile.needsAssessment || {};
 
   const getHomeTips = () => {
     const tips = [];
@@ -68,7 +69,47 @@ export default function ParentDashboard({ profile, progress }) {
     return tips;
   };
 
+  const getNeedLabel = (field, value) => {
+    const labels = {
+      readingDifficulty: {
+        none: 'Sin dificultades',
+        mild: 'Leve',
+        moderate: 'Moderada',
+        severe: 'Significativa',
+      },
+      mathDifficulty: {
+        none: 'Sin dificultades',
+        mild: 'Leve',
+        moderate: 'Moderada',
+        severe: 'Significativa',
+      },
+      attentionType: {
+        typical: 'Típica',
+        adhd_inattentive: 'TDAH - Desatención',
+        adhd_hyperactive: 'TDAH - Hiperactividad',
+        adhd_combined: 'TDAH - Combinado',
+      },
+      autismTraits: {
+        none: 'Sin rasgos significativos',
+        mild: 'Rasgos leves',
+        moderate: 'Rasgos moderados',
+      },
+      processingSpeed: {
+        slow: 'Lento',
+        average: 'Promedio',
+        fast: 'Rápido',
+      },
+      emotionalRegulation: {
+        typical: 'Típica',
+        needs_support: 'Necesita apoyo',
+        intense: 'Intensa',
+      },
+    };
+    return labels[field]?.[value] || value;
+  };
+
   const recentSessions = (progress.sessionHistory || []).slice(-7).reverse();
+  const recentEmotions = (profile.emotionalHistory || []).slice(-5).reverse();
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -101,6 +142,172 @@ export default function ParentDashboard({ profile, progress }) {
           ))}
         </div>
       </motion.div>
+
+      {/* Perfil cognitivo y necesidades */}
+      {needs.completed && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-6 sm:p-8 border-l-4 border-sky-400"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Brain size={20} className="text-sky-500" />
+              <h3 className="text-lg font-black text-forest-900">Perfil de aprendizaje</h3>
+            </div>
+            <button
+              onClick={onOpenAccessibility}
+              className="flex items-center gap-1 text-sm font-bold text-sky-500 hover:text-sky-700"
+            >
+              <Accessibility size={14} />
+              Ajustar
+            </button>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            <div className="bg-white/60 rounded-2xl p-4">
+              <p className="text-xs font-bold text-forest-400 uppercase tracking-wider mb-1">Estilo principal</p>
+              <p className="text-lg font-black text-forest-800 capitalize">{profile.learningStyle || 'Por definir'}</p>
+            </div>
+            <div className="bg-white/60 rounded-2xl p-4">
+              <p className="text-xs font-bold text-forest-400 uppercase tracking-wider mb-1">Modelo pedagógico</p>
+              <p className="text-lg font-black text-forest-800">
+                {profile.pedagogicalModel === 'adaptive' ? 'Adaptativo IA' :
+                 profile.pedagogicalModel === 'montessori' ? 'Montessori' :
+                 profile.pedagogicalModel === 'gamified' ? 'Gamificación' :
+                 profile.pedagogicalModel === 'multisensory' ? 'Multi-sensorial' :
+                 profile.pedagogicalModel === 'udl' ? 'Diseño Universal' :
+                 profile.pedagogicalModel === 'flipped' ? 'Aula Invertida' : 'Adaptativo'}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[
+              { field: 'readingDifficulty', label: 'Lectura', icon: '📖' },
+              { field: 'mathDifficulty', label: 'Matemáticas', icon: '🔢' },
+              { field: 'attentionType', label: 'Atención', icon: '🎯' },
+              { field: 'autismTraits', label: 'Rasgos TEA', icon: '🧩' },
+              { field: 'processingSpeed', label: 'Ritmo', icon: '⏱️' },
+              { field: 'emotionalRegulation', label: 'Emociones', icon: '❤️' },
+            ].map((item) => {
+              const value = needs[item.field];
+              const isConcern = value && value !== 'none' && value !== 'typical' && value !== 'average' && value !== 'fast';
+              return (
+                <div key={item.field} className={`rounded-xl p-3 border ${isConcern ? 'bg-amber-50 border-amber-200' : 'bg-white/60 border-transparent'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span>{item.icon}</span>
+                    <span className="text-xs font-bold text-forest-500">{item.label}</span>
+                  </div>
+                  <p className={`text-sm font-black ${isConcern ? 'text-amber-700' : 'text-forest-700'}`}>
+                    {getNeedLabel(item.field, value) || 'No evaluado'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sensibilidades sensoriales */}
+          {needs.sensorySensitivity?.length > 0 && (
+            <div className="mt-4 bg-rose-50 rounded-2xl p-4 border border-rose-200">
+              <p className="text-sm font-bold text-rose-700 mb-1">🔔 Sensibilidades sensoriales detectadas:</p>
+              <div className="flex flex-wrap gap-2">
+                {needs.sensorySensitivity.map((s) => (
+                  <span key={s} className="text-xs font-bold bg-rose-100 text-rose-600 rounded-full px-2 py-1">
+                    {s === 'sound' ? '🔊 Sonido' : s === 'light' ? '💡 Luz' : s === 'touch' ? '👋 Tacto' : s === 'movement' ? '🌀 Movimiento' : s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Adaptaciones activas */}
+      {profile.accessibility && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Shield size={20} className="text-emerald-500" />
+              <h3 className="text-lg font-black text-forest-900">Adaptaciones activas</h3>
+            </div>
+            <button
+              onClick={onOpenAccessibility}
+              className="text-sm font-bold text-emerald-500 hover:text-emerald-700"
+            >
+              Editar
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(profile.accessibility).map(([key, value]) => {
+              if (!value || value === false || value === 'medium' || value === 'badges') return null;
+              const labels = {
+                largeText: '🔍 Texto grande',
+                dyslexicFont: '🔤 Fuente dislexia',
+                highContrast: '👁️ Alto contraste',
+                reduceMotion: '✋ Sin animación',
+                reduceSound: '🔇 Sin sonido',
+                showPictograms: '🖼️ Pictogramas',
+                sessionDuration: `⏱️ ${value} min/sesión`,
+                breakFrequency: value === 'often' ? '☕ Descansos frecuentes' : value === 'rarely' ? '⏳ Sesiones largas' : null,
+                pacing: value === 'self' ? '🐢 A mi ritmo' : value === 'structured' ? '📋 Estructurado' : value === 'guided' ? '🧭 Con guía' : null,
+                positiveReinforcement: value === 'animations' ? '✨ Animaciones' : value === 'voice' ? '🗣️ Voz' : value === 'simple' ? '💬 Simple' : null,
+              };
+              if (!labels[key]) return null;
+              return (
+                <span key={key} className="text-xs font-bold bg-emerald-50 text-emerald-600 rounded-full px-3 py-1.5 border border-emerald-200">
+                  {labels[key]}
+                </span>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* Estado emocional reciente */}
+      {recentEmotions.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-6"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Heart size={20} className="text-rose-500" />
+            <h3 className="text-lg font-black text-forest-900">Estado emocional reciente</h3>
+          </div>
+          <div className="space-y-2">
+            {recentEmotions.map((emo, i) => {
+              const date = new Date(emo.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+              const moodEmojis = { happy: '😊', calm: '😌', excited: '🤩', tired: '😴', worried: '😰', sad: '😢', angry: '😠', frustrated: '😤' };
+              return (
+                <div key={i} className="flex items-center justify-between bg-white/60 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">{moodEmojis[emo.mood] || '😐'}</span>
+                    <div>
+                      <p className="text-sm font-bold text-forest-800 capitalize">{emo.mood}</p>
+                      <p className="text-xs text-forest-400">{date}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-xs text-forest-500">
+                      Energía: {'⭐'.repeat(emo.energy || 3)}
+                    </div>
+                    {emo.frustration > 2 && (
+                      <span className="text-xs font-bold bg-rose-50 text-rose-500 rounded-full px-2 py-1">
+                        Frustración: {emo.frustration}/5
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       {/* Progress by subject */}
       <div className="glass-card rounded-3xl p-6 sm:p-8">

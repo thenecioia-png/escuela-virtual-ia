@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { BookOpen, Home, Trophy, Users, Menu, X } from 'lucide-react';
+import { BookOpen, Home, Trophy, Users, Menu, X, Accessibility, Brain } from 'lucide-react';
 
-export default function Layout({ children, currentView, onNavigate, profile }) {
+export default function Layout({ children, currentView, onNavigate, profile, onOpenAccessibility }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navItems = [
@@ -11,16 +11,28 @@ export default function Layout({ children, currentView, onNavigate, profile }) {
     { id: 'parent', label: 'Papá/Mamá', icon: Users },
   ];
 
+  // Clases de accesibilidad dinámicas
+  const acc = profile?.accessibility || {};
+  const containerClass = [
+    'min-h-screen bg-cream-50 flex flex-col',
+    acc.dyslexicFont ? 'font-dyslexic' : '',
+    acc.largeText ? 'text-lg' : '',
+    acc.highContrast ? 'high-contrast' : '',
+    acc.reduceMotion ? 'reduce-motion' : '',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div className="min-h-screen bg-cream-50 flex flex-col">
-      {/* Floating decorations */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-12 left-[8%] text-2xl animate-float" style={{ animationDelay: '0s' }}>⭐</div>
-        <div className="absolute top-32 left-[20%] text-xl animate-float" style={{ animationDelay: '1s' }}>🌟</div>
-        <div className="absolute top-20 right-[12%] text-2xl animate-float" style={{ animationDelay: '2s' }}>✨</div>
-        <div className="absolute bottom-24 left-[15%] text-xl animate-float" style={{ animationDelay: '1.5s' }}>🦋</div>
-        <div className="absolute bottom-32 right-[10%] text-2xl animate-float" style={{ animationDelay: '0.5s' }}>🌈</div>
-      </div>
+    <div className={containerClass}>
+      {/* Floating decorations - solo si no reduceMotion */}
+      {!acc.reduceMotion && (
+        <div className="fixed inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-12 left-[8%] text-2xl animate-float" style={{ animationDelay: '0s' }}>⭐</div>
+          <div className="absolute top-32 left-[20%] text-xl animate-float" style={{ animationDelay: '1s' }}>🌟</div>
+          <div className="absolute top-20 right-[12%] text-2xl animate-float" style={{ animationDelay: '2s' }}>✨</div>
+          <div className="absolute bottom-24 left-[15%] text-xl animate-float" style={{ animationDelay: '1.5s' }}>🦋</div>
+          <div className="absolute bottom-32 right-[10%] text-2xl animate-float" style={{ animationDelay: '0.5s' }}>🌈</div>
+        </div>
+      )}
 
       {/* Header */}
       <header className="relative z-10 bg-white/80 backdrop-blur-md border-b border-forest-100 px-4 py-3 flex items-center justify-between">
@@ -28,15 +40,37 @@ export default function Layout({ children, currentView, onNavigate, profile }) {
           <span className="text-2xl">🦉</span>
           <h1 className="font-black text-forest-700 text-lg tracking-tight">Escuela Virtual Inteligente</h1>
         </div>
-        {profile?.name && (
-          <div className="flex items-center gap-2 bg-forest-50 rounded-full px-3 py-1">
-            <span className="text-lg">{profile.avatar}</span>
-            <span className="text-sm font-bold text-forest-700 hidden sm:inline">{profile.name}</span>
-          </div>
-        )}
-        <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 rounded-xl hover:bg-forest-50 transition-colors md:hidden">
-          {menuOpen ? <X size={22} className="text-forest-700" /> : <Menu size={22} className="text-forest-700" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {profile?.pedagogicalModel && (
+            <span className="hidden sm:flex items-center gap-1 text-xs font-bold text-forest-500 bg-forest-50 rounded-full px-2 py-1">
+              <Brain size={12} />
+              {profile.pedagogicalModel === 'adaptive' ? 'Adaptativo' :
+               profile.pedagogicalModel === 'montessori' ? 'Montessori' :
+               profile.pedagogicalModel === 'gamified' ? 'Juego' :
+               profile.pedagogicalModel === 'multisensory' ? 'Multi-sensorial' :
+               profile.pedagogicalModel === 'udl' ? 'Universal' :
+               profile.pedagogicalModel === 'flipped' ? 'Invertido' : 'Adaptativo'}
+            </span>
+          )}
+          {onOpenAccessibility && (
+            <button
+              onClick={onOpenAccessibility}
+              className="p-2 rounded-xl hover:bg-forest-50 text-forest-500 transition-colors"
+              title="Ajustes de accesibilidad"
+            >
+              <Accessibility size={20} />
+            </button>
+          )}
+          {profile?.name && (
+            <div className="flex items-center gap-2 bg-forest-50 rounded-full px-3 py-1">
+              <span className="text-lg">{profile.avatar}</span>
+              <span className="text-sm font-bold text-forest-700 hidden sm:inline">{profile.name}</span>
+            </div>
+          )}
+          <button onClick={() => setMenuOpen(!menuOpen)} className="p-2 rounded-xl hover:bg-forest-50 transition-colors md:hidden">
+            {menuOpen ? <X size={22} className="text-forest-700" /> : <Menu size={22} className="text-forest-700" />}
+          </button>
+        </div>
       </header>
 
       {/* Mobile menu */}

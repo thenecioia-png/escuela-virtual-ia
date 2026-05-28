@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* OpenDyslexic font for dyslexia support */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/otf/OpenDyslexic-Regular.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/otf/OpenDyslexic-Bold.otf') format('opentype');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
   --color-cream-50: #fefdf9;
   --color-cream-100: #fdf8ec;
@@ -25,6 +42,7 @@
   --color-lavender-500: #8b5cf6;
   --font-display: 'Nunito', 'Segoe UI', sans-serif;
   --font-body: 'Nunito', 'Segoe UI', sans-serif;
+  --font-dyslexic: 'OpenDyslexic', 'Nunito', 'Segoe UI', sans-serif;
 }
 
 html, body, #root {
@@ -36,6 +54,87 @@ body {
   background-color: var(--color-cream-50);
   color: var(--color-forest-900);
   overflow-x: hidden;
+}
+
+/* ===== ACCESIBILIDAD ===== */
+
+/* Fuente dislexia */
+html.dyslexic-font,
+html.dyslexic-font body,
+html.dyslexic-font * {
+  font-family: var(--font-dyslexic) !important;
+}
+
+html.dyslexic-font h1,
+html.dyslexic-font h2,
+html.dyslexic-font h3,
+html.dyslexic-font h4,
+html.dyslexic-font .font-black,
+html.dyslexic-font .font-bold {
+  font-weight: bold !important;
+  letter-spacing: 0.02em;
+}
+
+/* Texto grande */
+html.large-text body {
+  font-size: 1.125rem;
+}
+html.large-text h1 { font-size: 2.5rem; }
+html.large-text h2 { font-size: 2rem; }
+html.large-text h3 { font-size: 1.5rem; }
+html.large-text .text-xs { font-size: 0.875rem; }
+html.large-text .text-sm { font-size: 1rem; }
+html.large-text input,
+html.large-text button {
+  font-size: 1.125rem;
+}
+
+/* Alto contraste */
+html.high-contrast body {
+  background-color: #ffffff;
+  color: #000000;
+}
+html.high-contrast .glass-card {
+  background: #ffffff;
+  border: 2px solid #000000;
+  box-shadow: none;
+}
+html.high-contrast .bg-forest-50 { background-color: #e8f5e9; }
+html.high-contrast .bg-forest-100 { background-color: #c8e6c9; }
+html.high-contrast .bg-forest-500 { background-color: #1b5e20; }
+html.high-contrast .text-forest-500 { color: #1b5e20; }
+html.high-contrast .text-forest-600 { color: #2e7d32; }
+html.high-contrast .text-forest-700 { color: #1b5e20; }
+html.high-contrast .text-forest-900 { color: #000000; }
+html.high-contrast .border-forest-100 { border-color: #4caf50; }
+html.high-contrast .border-forest-200 { border-color: #4caf50; }
+
+/* Reducir movimiento */
+html.reduce-motion * {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+html.reduce-motion .animate-float,
+html.reduce-motion .animate-wiggle,
+html.reduce-motion .animate-pulse-soft {
+  animation: none !important;
+}
+
+/* Mayor espaciado para lectura */
+html.dyslexic-font p,
+html.dyslexic-font li {
+  line-height: 1.8;
+}
+html.dyslexic-font .glass-card {
+  padding: 1.5rem;
+}
+
+/* Pictogramas visibles */
+html.pictograms .choice-btn::before,
+html.pictograms .glass-card::before {
+  content: '🔹';
+  margin-right: 0.5rem;
 }
 
 @keyframes float {
