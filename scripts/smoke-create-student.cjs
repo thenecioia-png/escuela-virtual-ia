@@ -10,7 +10,7 @@ const { chromium } = require('playwright-core');
   const errors = [];
   page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
 
-  await page.goto('http://localhost:5199', { waitUntil: 'networkidle' });
+  await page.goto((process.env.APP_URL || 'http://localhost:5199'), { waitUntil: 'networkidle' });
   // Entrar: si hay portada, welcome → auth → demo; si ya hay sesión, cae en picker
   if (await page.getByRole('button', { name: /Empezar/i }).isVisible({timeout:1500}).catch(() => false)) {
     await page.getByRole('button', { name: /Empezar/i }).click();

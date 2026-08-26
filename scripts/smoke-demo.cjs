@@ -11,7 +11,7 @@ const { chromium } = require('playwright-core');
   page.on('pageerror', (e) => errors.push('PAGEERROR: ' + e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push('CONSOLE: ' + m.text()));
 
-  await page.goto('http://localhost:5199', { waitUntil: 'networkidle' });
+  await page.goto((process.env.APP_URL || 'http://localhost:5199'), { waitUntil: 'networkidle' });
   console.log('1 welcome:', await page.getByRole('button', { name: /Empezar/i }).isVisible());
 
   await page.getByRole('button', { name: /Empezar/i }).click();

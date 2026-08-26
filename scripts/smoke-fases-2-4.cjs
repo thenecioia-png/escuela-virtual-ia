@@ -38,7 +38,7 @@ const PROGRESS = {
     localStorage.setItem('evi_progress', JSON.stringify(progress));
   }, [STUDENT, PROGRESS]);
 
-  await page.goto('http://localhost:5199', { waitUntil: 'networkidle' });
+  await page.goto((process.env.APP_URL || 'http://localhost:5199'), { waitUntil: 'networkidle' });
   await page.waitForTimeout(1200);
 
   // 0. Elegir el perfil en el picker (sin PIN)

@@ -3,15 +3,22 @@
 // funcionando sin IA (las funciones son opcionales hasta la Fase 3).
 
 const TUTOR_URL = import.meta.env.VITE_TUTOR_API_URL;
+const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const isTutorConfigured = Boolean(TUTOR_URL);
 
 export async function tutorRequest(action, payload = {}) {
   if (!isTutorConfigured) return null;
   try {
+    // La Edge Function exige JWT: la anon key pública basta (los secretos IA viven en el servidor)
+    const headers = { 'Content-Type': 'application/json' };
+    if (ANON_KEY) {
+      headers['Authorization'] = `Bearer ${ANON_KEY}`;
+      headers['apikey'] = ANON_KEY;
+    }
     const res = await fetch(TUTOR_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ action, payload }),
     });
     const body = await res.json();
