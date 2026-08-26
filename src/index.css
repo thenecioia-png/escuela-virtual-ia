@@ -174,9 +174,9 @@ html.pictograms .glass-card::before {
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.95);
+  /* Sin backdrop-filter: en muchos teléfonos el blur difumina el texto encima */
+  border: 1px solid rgba(224, 237, 224, 0.9);
   box-shadow: 0 8px 32px rgba(26, 46, 31, 0.08);
 }
 
