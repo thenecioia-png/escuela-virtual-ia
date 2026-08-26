@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { getStorage, setStorage, removeStorage } from '../utils/storage';
 import { supabase, isCloudConfigured } from '../lib/supabase';
 
-const DEFAULT_PROFILE = {
+export const DEFAULT_PROFILE = {
   name: '',
   age: null,
   avatar: '🦉',
@@ -202,6 +202,13 @@ export function useStudentProfile(familyId) {
     setStorage('students', next);
   }, []);
 
+  // Recargar caché cuando llegan estudiantes por link/QR compartido
+  useEffect(() => {
+    const reload = () => setStudents(getStorage('students', []));
+    window.addEventListener('evi-students-updated', reload);
+    return () => window.removeEventListener('evi-students-updated', reload);
+  }, []);
+
   // Subir un estudiante a la nube (fire-and-forget; la caché local ya quedó)
   const pushToCloud = useCallback(
     (student) => {
@@ -365,6 +372,20 @@ export function useStudentProfile(familyId) {
   const selectStudent = useCallback((id, pin) => {
     const student = getStorage('students', []).find((s) => s.id === id);
     if (!student) return false;
+    // PIN '__remote__': perfil llegó por link/QR → verificar en el servidor (devuelve Promise)
+    if (student.pin === '__remote__') {
+      if (!isCloudConfigured) return false;
+      return supabase
+        .rpc('check_student_pin', { sid: id, pin_attempt: pin || '' })
+        .then(({ data, error }) => {
+          const ok = !error && data === true;
+          if (ok) {
+            setActiveId(id);
+            setStorage('active_student', id);
+          }
+          return ok;
+        });
+    }
     if (student.pin && student.pin !== pin) return false;
     setActiveId(id);
     setStorage('active_student', id);

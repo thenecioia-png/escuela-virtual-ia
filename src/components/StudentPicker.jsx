@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Delete, Plus, LogOut } from 'lucide-react';
 import { getCountry, getGrade } from '../lib/curricula';
 
-export default function StudentPicker({ students, onSelect, onAddStudent, onLogout, isDemo }) {
+export default function StudentPicker({ students, onSelect, onAddStudent, onLogout, isDemo, sharedMode = false }) {
   const [selected, setSelected] = useState(null); // estudiante esperando PIN
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
@@ -25,10 +25,16 @@ export default function StudentPicker({ students, onSelect, onAddStudent, onLogo
     const next = pin + d;
     setPin(next);
     if (next.length === 4) {
-      const ok = onSelect(selected.id, next);
-      if (!ok) {
+      const fail = () => {
         setError(true);
         setPin('');
+      };
+      const result = onSelect(selected.id, next);
+      if (result && typeof result.then === 'function') {
+        // Verificación remota de PIN (perfil por link/QR) → Promise<boolean>
+        result.then((ok) => { if (!ok) fail(); }).catch(fail);
+      } else if (!result) {
+        fail();
       }
     }
   };
@@ -64,15 +70,17 @@ export default function StudentPicker({ students, onSelect, onAddStudent, onLogo
                     </motion.button>
                   );
                 })}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={onAddStudent}
-                  className="rounded-3xl p-5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-forest-300 text-forest-400 hover:border-forest-500 hover:text-forest-600 transition-all"
-                >
-                  <Plus size={28} />
-                  <span className="text-sm font-bold">Agregar estudiante</span>
-                </motion.button>
+                {!sharedMode && onAddStudent && (
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={onAddStudent}
+                    className="rounded-3xl p-5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-forest-300 text-forest-400 hover:border-forest-500 hover:text-forest-600 transition-all"
+                  >
+                    <Plus size={28} />
+                    <span className="text-sm font-bold">Agregar estudiante</span>
+                  </motion.button>
+                )}
               </div>
             </motion.div>
           ) : (
@@ -139,7 +147,7 @@ export default function StudentPicker({ students, onSelect, onAddStudent, onLogo
             className="inline-flex items-center gap-2 text-xs font-bold text-forest-300 hover:text-forest-500 transition-colors"
           >
             <LogOut size={14} />
-            {isDemo ? 'Salir del modo demo' : 'Cerrar sesión de Papá/Mamá'}
+            {isDemo ? 'Salir del modo demo' : sharedMode ? 'Entrar como Papá/Mamá' : 'Cerrar sesión de Papá/Mamá'}
           </button>
         </div>
       </motion.div>

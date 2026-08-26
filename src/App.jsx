@@ -16,6 +16,8 @@ import LessonPlayer from './components/Student/LessonPlayer';
 import ParentDashboard from './components/Parent/ParentDashboard';
 import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
 import AccessibilitySettings from './components/Student/AccessibilitySettings';
+import { getSharedFamilyId, fetchSharedStudents, cacheSharedStudents } from './lib/familyShare';
+import { DEFAULT_PROFILE } from './hooks/useStudentProfile';
 
 export default function App() {
   const auth = useAuth();
@@ -55,6 +57,22 @@ export default function App() {
   const [showAccessibility, setShowAccessibility] = useState(false);
   const [creatingNew, setCreatingNew] = useState(false); // onboarding de estudiante nuevo (usa draft)
 
+  // Modo "link/QR compartido": ?f=<familyId> → el estudiante entra con su PIN
+  // desde su propio teléfono, sin la cuenta del padre.
+  const [sharedFamilyId] = useState(getSharedFamilyId);
+  const [sharedReady, setSharedReady] = useState(false);
+
+  useEffect(() => {
+    if (!sharedFamilyId || auth.session) return;
+    fetchSharedStudents(sharedFamilyId).then((rows) => {
+      if (rows.length > 0) {
+        cacheSharedStudents(rows, DEFAULT_PROFILE);
+        window.dispatchEvent(new Event('evi-students-updated'));
+      }
+      setSharedReady(true);
+    });
+  }, [sharedFamilyId, auth.session]);
+
   // Determinar si necesita check-in emocional antes de la lección
   const needsEmotionalCheckIn = useCallback(() => {
     const lastCheckIn = profile.emotionalHistory?.slice(-1)[0];
@@ -69,14 +87,17 @@ export default function App() {
   const startOnboarding = () => setView('auth'); // Welcome → cuenta de Papá/Mamá
   const goToNeedsAssessment = () => setView('needs');
 
-  // Elegir estudiante existente en el selector (con o sin PIN)
+  // Elegir estudiante existente en el selector (con o sin PIN; remoto = Promise)
   const handleSelectStudent = useCallback((id, pin) => {
-    const ok = selectStudent(id, pin);
-    if (ok) {
-      setView('dashboard');
-      setCurrentNav('dashboard');
-    }
-    return ok;
+    const after = (ok) => {
+      if (ok) {
+        setView('dashboard');
+        setCurrentNav('dashboard');
+      }
+      return ok;
+    };
+    const r = selectStudent(id, pin);
+    return r && typeof r.then === 'function' ? r.then(after) : after(r);
   }, [selectStudent]);
 
   // "Agregar estudiante" desde el selector → onboarding con borrador nuevo
@@ -194,8 +215,32 @@ export default function App() {
     html.classList.toggle('reduce-motion', acc.reduceMotion);
   }, [profile.accessibility]);
 
-  // 1) Sin sesión de Papá/Mamá: portada → login/registro (o modo demo)
-  if (!auth.session) {
+  // 1) Modo link/QR compartido sin sesión de padre: solo el selector del niño
+  if (sharedFamilyId && !auth.session && !activeId) {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div key="shared-picker" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          {!sharedReady ? (
+            <div className="min-h-screen flex items-center justify-center">
+              <p className="text-forest-500 font-bold animate-pulse">Buscando tu perfil…</p>
+            </div>
+          ) : (
+            <StudentPicker
+              students={students}
+              onSelect={handleSelectStudent}
+              onAddStudent={null}
+              onLogout={() => { window.location.href = window.location.pathname; }}
+              isDemo={false}
+              sharedMode
+            />
+          )}
+        </motion.div>
+      </AnimatePresence>
+    );
+  }
+
+  // 2) Sin sesión de Papá/Mamá (y sin link compartido): portada → login/registro (o modo demo)
+  if (!auth.session && !sharedFamilyId) {
     return (
       <AnimatePresence mode="wait">
         {view === 'welcome' && (
@@ -346,6 +391,7 @@ export default function App() {
               onOpenAccessibility={() => setShowAccessibility(true)}
               onSendMessage={sendParentMessage}
               studentId={activeId}
+              familyId={auth.familyId}
             />
           </motion.div>
         )}

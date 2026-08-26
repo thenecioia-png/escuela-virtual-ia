@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap, Send, Sparkles, MessageCircleHeart, GraduationCap, Radio, FileText } from 'lucide-react';
+import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap, Send, Sparkles, MessageCircleHeart, GraduationCap, Radio, FileText, QrCode, Copy, Check } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { isTutorConfigured, generateHint, dailyRecommendation } from '../../lib/tutorApi';
 import { getCountry, getGrade } from '../../lib/curricula';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
 import { computeGrades, fetchGrades, currentPeriod } from '../../lib/grades';
+import { buildShareLink } from '../../lib/familyShare';
 
-export default function ParentDashboard({ profile, progress, adaptiveEngine, onOpenAccessibility, onSendMessage, studentId }) {
+export default function ParentDashboard({ profile, progress, adaptiveEngine, onOpenAccessibility, onSendMessage, studentId, familyId }) {
   const getSubjectProgress = (subjectId) => {
     const levels = progress.subjectProgress[subjectId] || {};
     const total = Object.values(levels).reduce((a, b) => a + b, 0);
@@ -280,6 +281,11 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
           ))}
         </div>
       </motion.div>
+
+      {/* Compartir: link/QR para que el niño entre con su PIN desde su teléfono */}
+      {familyId && isCloudConfigured && (
+        <ShareFamilyCard familyId={familyId} />
+      )}
 
       {/* Actividad de hoy (en vivo si hay nube) + resumen semanal */}
       <motion.div
@@ -811,5 +817,63 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
         </div>
       )}
     </div>
+  );
+}
+
+// Tarjeta "Compartir": link + QR para que el niño entre con su PIN
+// desde su propio teléfono (o el mismo), sin la cuenta del padre.
+function ShareFamilyCard({ familyId }) {
+  const [copied, setCopied] = useState(false);
+  const link = buildShareLink(familyId);
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(link)}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copia este enlace:', link);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card rounded-3xl p-6 sm:p-8 border-l-4 border-emerald-400"
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <QrCode size={20} className="text-emerald-500" />
+        <h3 className="text-lg font-black text-forest-900">Compartir con tu hijo/a</h3>
+      </div>
+      <p className="text-sm text-forest-500 mb-4">
+        Escanea el código QR o envía el enlace al teléfono de tu hijo/a. Entrará con su perfil y su PIN,
+        y todo lo que estudie se verá aquí en tiempo real.
+      </p>
+      <div className="flex flex-col sm:flex-row items-center gap-5">
+        <img
+          src={qrUrl}
+          alt="Código QR para entrar como estudiante"
+          className="w-40 h-40 rounded-2xl border-2 border-forest-100 bg-white"
+          loading="lazy"
+        />
+        <div className="flex-1 w-full">
+          <div className="flex items-center gap-2 bg-white border-2 border-forest-200 rounded-2xl px-4 py-3">
+            <span className="flex-1 text-sm font-semibold text-forest-700 truncate">{link}</span>
+            <button
+              onClick={copy}
+              className="shrink-0 flex items-center gap-1 text-sm font-bold text-forest-500 hover:text-forest-700 transition-colors"
+            >
+              {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
+              {copied ? 'Copiado' : 'Copiar'}
+            </button>
+          </div>
+          <p className="text-xs text-forest-400 mt-2">
+            En este mismo teléfono también puedes cerrar tu sesión y dejar que el niño entre con su PIN.
+          </p>
+        </div>
+      </div>
+    </motion.div>
   );
 }
