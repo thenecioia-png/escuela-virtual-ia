@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, X, ArrowRight, RotateCcw, Star, Trophy, Home, Coffee, Heart, Volume2 } from 'lucide-react';
+import { Check, X, ArrowRight, RotateCcw, Star, Trophy, Home, Coffee, Heart, Volume2, Lightbulb } from 'lucide-react';
 import { getLesson } from '../../data/lessons';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
+import { isTutorConfigured, getHint } from '../../lib/tutorApi';
+import { getCountry, getGrade } from '../../lib/curricula';
 import ProgressRing from './ProgressRing';
 
-export default function LessonPlayer({ subjectId, levelId, lessonIndex, learningStyle, profile, adaptiveEngine, onFinish, onHome }) {
+export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLesson, learningStyle, profile, adaptiveEngine, onFinish, onHome }) {
   const [lesson, setLesson] = useState(null);
   const [currentItem, setCurrentItem] = useState(0);
   const [selectedOption, setSelectedOption] = useState(null);
@@ -20,12 +22,16 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
   const [showBreak, setShowBreak] = useState(false);
   const [breakData, setBreakData] = useState(null);
   const [sessionStartTime] = useState(Date.now());
+  const [hint, setHint] = useState(null);       // pista de la IA (o null)
+  const [loadingHint, setLoadingHint] = useState(false);
   const timerRef = useRef(null);
 
   const { getLessonForStudent, getBreakRecommendation, getEncouragementMessage, adaptations = [] } = adaptiveEngine;
 
   useEffect(() => {
-    const studentLesson = getLessonForStudent(subjectId, levelId, lessonIndex);
+    // Lección generada por IA (ya adaptada al formato { title, instruction, items })
+    // o lección hardcodeada vía motor adaptativo.
+    const studentLesson = customLesson || getLessonForStudent(subjectId, levelId, lessonIndex);
     if (!studentLesson) return;
     setLesson(studentLesson);
     setCurrentItem(0);
@@ -37,7 +43,9 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
     setExplanationVisible(false);
     setEncouragement(getEncouragementMessage('start'));
     setShowBreak(false);
-  }, [subjectId, levelId, lessonIndex, learningStyle, getLessonForStudent, getEncouragementMessage]);
+    setHint(null);
+    setLoadingHint(false);
+  }, [subjectId, levelId, lessonIndex, customLesson, learningStyle, getLessonForStudent, getEncouragementMessage]);
 
   // Timer para breaks basado en duración de sesión
   useEffect(() => {
@@ -64,7 +72,8 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
   const handleSelect = (option) => {
     if (showResult) return;
     setSelectedOption(option);
-    const correct = option === lesson.items[currentItem].answer;
+    const item = lesson.items[currentItem];
+    const correct = option === item.answer;
     setIsCorrect(correct);
     setShowResult(true);
     if (correct) {
@@ -72,9 +81,31 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
       setEncouragement(getEncouragementMessage('correct'));
     } else {
       setEncouragement(getEncouragementMessage('incorrect'));
+      pedirPista(item, option);
     }
-    setAnswers((a) => [...a, { item: currentItem, correct, selected: option }]);
+    setAnswers((a) => [...a, { item: currentItem, q: item.q, correct, selected: option }]);
     setTimeout(() => setExplanationVisible(true), 400);
+  };
+
+  // Pista de la IA al fallar: nunca bloquea la lección (fire-and-forget)
+  const pedirPista = (item, wrongAnswer) => {
+    if (!isTutorConfigured) return;
+    setHint(null);
+    setLoadingHint(true);
+    const subjectName = SUBJECTS.find((s) => s.id === subjectId)?.name || lesson.subjectName || subjectId;
+    getHint({
+      country: getCountry(profile.countryCode)?.name,
+      grade: getGrade(profile.countryCode, profile.gradeId)?.label,
+      age: profile.age,
+      subject: subjectName,
+      topic: levelId,
+      question: item.q,
+      wrongAnswer,
+      correctAnswer: item.answer,
+    }).then((pista) => {
+      setLoadingHint(false);
+      if (pista) setHint(pista);
+    });
   };
 
   const handleNext = () => {
@@ -85,6 +116,8 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
       setIsCorrect(false);
       setExplanationVisible(false);
       setEncouragement('');
+      setHint(null);
+      setLoadingHint(false);
     } else {
       setLessonComplete(true);
     }
@@ -94,8 +127,11 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
     const total = lesson.items.length;
     const percentage = Math.round((score / total) * 100);
     const timeMinutes = Math.max(1, Math.round((Date.now() - startTime) / 60000));
-    onFinish(subjectId, levelId, percentage, timeMinutes);
-  }, [lesson, score, startTime, subjectId, levelId, onFinish]);
+    onFinish(subjectId, levelId, percentage, timeMinutes, {
+      answers,
+      lessonUuid: customLesson?.cloudId || null,
+    });
+  }, [lesson, score, startTime, answers, subjectId, levelId, customLesson, onFinish]);
 
   const handleRetry = () => {
     setCurrentItem(0);
@@ -108,6 +144,8 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
     setExplanationVisible(false);
     setEncouragement(getEncouragementMessage('start'));
     setShowBreak(false);
+    setHint(null);
+    setLoadingHint(false);
   };
 
   if (!lesson) {
@@ -330,6 +368,13 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
             {lesson.instruction}
           </div>
 
+          {/* Explicación introductoria (lecciones generadas por IA) */}
+          {lesson.explanation && currentItem === 0 && !showResult && (
+            <div className="mb-4 bg-forest-50 rounded-2xl p-4 border border-forest-100">
+              <p className="text-sm text-forest-700 leading-relaxed whitespace-pre-line">{lesson.explanation}</p>
+            </div>
+          )}
+
           {/* Si hay multi-instruction (modelo multisensorial) */}
           {item.multiInstruction && (
             <div className="mb-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
@@ -405,6 +450,26 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, learning
                     {isCorrect ? '¡Correcto! 🎉' : 'Casi... 💡'}
                   </p>
                   <p className="text-sm text-forest-700">{item.explanation}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Pista de la IA (solo cuando falla y hay IA configurada) */}
+          <AnimatePresence>
+            {!isCorrect && showResult && (hint || loadingHint) && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mt-4 rounded-2xl p-4 bg-sky-50 border border-sky-200 flex items-start gap-3"
+              >
+                <Lightbulb size={18} className="text-sky-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-sky-700 mb-0.5">Pista de tu tutora</p>
+                  <p className="text-sm text-forest-700">
+                    {loadingHint ? 'Pensando en una pista para ti…' : hint}
+                  </p>
                 </div>
               </motion.div>
             )}

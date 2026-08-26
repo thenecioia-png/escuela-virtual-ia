@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, User, Cake, Heart } from 'lucide-react';
+import { ArrowRight, ArrowLeft, User, Cake, Heart, Globe, GraduationCap, KeyRound } from 'lucide-react';
+import { COUNTRIES_CURRICULA } from '../../lib/curricula';
+import { supabase, isCloudConfigured } from '../../lib/supabase';
 
 const INTERESTS = [
   { id: 'animals', label: 'Animales', emoji: '🐾' },
@@ -15,10 +17,35 @@ const INTERESTS = [
 
 export default function ProfileCreator({ profile, updateProfile, avatars, onNext, onBack }) {
   const [step, setStep] = useState(0);
+  const [countryCode, setCountryCode] = useState(profile.countryCode || null);
+  const [gradeId, setGradeId] = useState(profile.gradeId || null);
   const [name, setName] = useState(profile.name || '');
   const [age, setAge] = useState(profile.age || '');
   const [selectedAvatar, setSelectedAvatar] = useState(profile.avatar || avatars[0]);
   const [selectedInterests, setSelectedInterests] = useState(profile.interests || []);
+  const [pin, setPin] = useState(profile.pin || '');
+  const [countries, setCountries] = useState(COUNTRIES_CURRICULA);
+
+  // Currículos: intenta la BD; si falla (o no hay nube), queda el fallback local
+  useEffect(() => {
+    if (!isCloudConfigured) return;
+    supabase
+      .from('countries_curricula')
+      .select('country_code, country_name, grades')
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setCountries(
+            data.map((row) => {
+              const local = COUNTRIES_CURRICULA.find((c) => c.code === row.country_code);
+              return { code: row.country_code, name: row.country_name, flag: local?.flag || '🏳️', grades: row.grades };
+            })
+          );
+        }
+      });
+  }, []);
+
+  const selectedCountry = countries.find((c) => c.code === countryCode) || null;
+  const grades = selectedCountry?.grades || [];
 
   const toggleInterest = (id) => {
     setSelectedInterests((prev) =>
@@ -28,23 +55,80 @@ export default function ProfileCreator({ profile, updateProfile, avatars, onNext
 
   const saveAndNext = () => {
     updateProfile({
+      countryCode,
+      gradeId,
       name,
       age: parseInt(age) || null,
       avatar: selectedAvatar,
       interests: selectedInterests,
+      pin: pin || null,
     });
     onNext();
   };
 
   const canProceed = () => {
-    if (step === 0) return name.trim().length >= 2;
-    if (step === 1) return age && age >= 4 && age <= 14;
-    if (step === 2) return true;
-    if (step === 3) return selectedInterests.length >= 1;
+    if (step === 0) return Boolean(countryCode);
+    if (step === 1) return Boolean(gradeId);
+    if (step === 2) return name.trim().length >= 2;
+    if (step === 3) return age && age >= 4 && age <= 14;
+    if (step === 4) return true;
+    if (step === 5) return selectedInterests.length >= 1;
+    if (step === 6) return /^[0-9]{4}$/.test(pin);
     return false;
   };
 
   const steps = [
+    {
+      title: '¿En qué país estudias?',
+      icon: <Globe size={20} />,
+      content: (
+        <div className="space-y-4">
+          <p className="text-forest-600 text-center">Cada país tiene su propio plan de estudios. Elegiremos las lecciones correctas para ti.</p>
+          <div className="space-y-2 max-w-sm mx-auto">
+            {countries.map((c) => (
+              <button
+                key={c.code}
+                onClick={() => { setCountryCode(c.code); setGradeId(null); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border-2 font-bold transition-all ${
+                  countryCode === c.code
+                    ? 'bg-forest-500 text-white border-forest-500 shadow-lg'
+                    : 'bg-white text-forest-700 border-forest-200 hover:border-forest-300'
+                }`}
+              >
+                <span className="text-2xl">{c.flag}</span>
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: '¿En qué grado vas?',
+      icon: <GraduationCap size={20} />,
+      content: (
+        <div className="space-y-4">
+          <p className="text-forest-600 text-center">
+            Grados de {selectedCountry?.name || 'tu país'}. Así te enseñaré justo lo que ves en la escuela.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-md mx-auto">
+            {grades.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => setGradeId(g.id)}
+                className={`px-4 py-3 rounded-2xl border-2 font-bold text-sm transition-all ${
+                  gradeId === g.id
+                    ? 'bg-forest-500 text-white border-forest-500 shadow-lg'
+                    : 'bg-white text-forest-700 border-forest-200 hover:border-forest-300'
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ),
+    },
     {
       title: '¿Cómo te llamas?',
       icon: <User size={20} />,
@@ -161,6 +245,26 @@ export default function ProfileCreator({ profile, updateProfile, avatars, onNext
               {selectedInterests.length} intereses seleccionados
             </motion.p>
           )}
+        </div>
+      ),
+    },
+    {
+      title: 'Crea tu PIN secreto',
+      icon: <KeyRound size={20} />,
+      content: (
+        <div className="space-y-4">
+          <p className="text-forest-600 text-center">
+            4 números que solo tú sabes. Los usarás para entrar a tu perfil sin tocar el de tus hermanos.
+          </p>
+          <input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            placeholder="····"
+            className="w-48 mx-auto block text-center text-3xl font-black tracking-[0.5em] text-forest-900 bg-white border-2 border-forest-200 rounded-2xl px-4 py-3 focus:outline-none focus:border-forest-500 focus:ring-4 focus:ring-forest-500/10 transition-all placeholder:text-forest-200"
+          />
+          <p className="text-center text-xs text-forest-400">Papá o mamá también deben saberlo, por si lo olvidas.</p>
         </div>
       ),
     },

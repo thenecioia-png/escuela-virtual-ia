@@ -1,0 +1,26 @@
+# Worker "tutor" — router multi-proveedor de IA con fallback automático.
+# Réplica en Cloudflare Workers del concepto "9Router": un solo endpoint que
+# encadena proveedores GRATIS y se salta los que no tengan key configurada.
+#
+# Deploy (cuando toque, NO ahora):
+#   cd worker && npx wrangler deploy
+#
+# Secrets/vars (configurar con `npx wrangler secret put <NOMBRE>` o en el dashboard):
+#   GEMINI_API_KEY      — Google AI Studio, free tier (~1.500 req/día)
+#   CF_ACCOUNT_ID       — Account ID de Cloudflare (para Workers AI por REST)
+#   CF_API_TOKEN        — Token con permiso "Workers AI"
+#   OPENROUTER_API_KEY  — openrouter.ai, modelos ":free"
+#   ALLOWED_ORIGIN      — dominio de la app (opcional; por defecto "*")
+# Nota: si el Worker tiene un binding `AI` (wrangler.toml), Workers AI se usa
+# sin necesidad de CF_ACCOUNT_ID/CF_API_TOKEN.
+
+name = "escuela-virtual-tutor"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Descomentar para usar el binding nativo de Workers AI (recomendado, gratis):
+# [ai]
+# binding = "AI"
+
+[vars]
+ALLOWED_ORIGIN = "*"

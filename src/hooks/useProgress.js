@@ -1,5 +1,9 @@
 import { useState, useCallback } from 'react';
 import { getStorage, setStorage } from '../utils/storage';
+import { supabase, isCloudConfigured } from '../lib/supabase';
+import { upsertGrades } from '../lib/grades';
+import { isTutorConfigured, analyzeProgress } from '../lib/tutorApi';
+import { getCountry, getGrade } from '../lib/curricula';
 
 const DEFAULT_PROGRESS = {
   subjectProgress: {}, // { math: { sumas_restas: 2, multiplicacion: 0, ... }, ... }
@@ -25,19 +29,71 @@ const ACHIEVEMENTS = [
   { id: '50_stars', name: 'Coleccionista de Estrellas', icon: '✨', condition: (p) => p.totalStars >= 50 },
 ];
 
-export function useProgress() {
+// Hook de progreso del estudiante.
+// - localStorage sigue siendo la fuente local (caché/fallback, modo demo intacto).
+// - Si hay nube Y el estudiante activo tiene id de la nube, cada sesión se
+//   inserta en `sessions`, se recalculan las notas (`grades_record`) y cada
+//   5 sesiones la IA analiza las respuestas (`ai_insights`).
+export function useProgress(studentId, profile = {}) {
   const [progress, setProgress] = useState(() => getStorage('progress', DEFAULT_PROGRESS));
+  const useCloud = isCloudConfigured && studentId && !String(studentId).startsWith('local-');
 
-  const updateProgress = useCallback((updater) => {
-    setProgress((prev) => {
-      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
-      setStorage('progress', next);
-      return next;
-    });
-  }, []);
+  // ---- Efectos en la nube (fire-and-forget: nunca bloquean ni rompen lo local)
+  const syncToCloud = useCallback(
+    (subjectId, score, timeMinutes, extras, nextProgress) => {
+      const now = new Date();
+      supabase
+        .from('sessions')
+        .insert({
+          student_id: studentId,
+          lesson_id: extras.lessonUuid || null,
+          started_at: new Date(now.getTime() - timeMinutes * 60000).toISOString(),
+          ended_at: now.toISOString(),
+          time_minutes: timeMinutes,
+          score,
+          answers: extras.answers || [],
+          emotion: extras.emotion || null,
+        })
+        .then(() => {});
 
-  const recordSession = useCallback((subjectId, levelId, score, timeMinutes) => {
-    updateProgress((prev) => {
+      // Recalcular boleta del período con todo el historial
+      upsertGrades(studentId, nextProgress.sessionHistory);
+
+      // Análisis de IA cada 5 sesiones nuevas
+      if (isTutorConfigured && nextProgress.sessionHistory.length % 5 === 0) {
+        const recentAnswers = nextProgress.sessionHistory
+          .slice(-5)
+          .flatMap((s) => (s.answers || []).map((a) => ({ materia: s.subjectId, ...a })));
+        if (recentAnswers.length === 0) return;
+        analyzeProgress({
+          country: getCountry(profile.countryCode)?.name,
+          grade: getGrade(profile.countryCode, profile.gradeId)?.label,
+          age: profile.age,
+          subject: subjectId,
+          answers: recentAnswers,
+        }).then((result) => {
+          if (!result) return;
+          supabase
+            .from('ai_insights')
+            .insert({
+              student_id: studentId,
+              strengths: result.fortalezas || [],
+              weaknesses: result.debilidades || [],
+              focus_suggestion: result.foco_sugerido || null,
+            })
+            .then(() => {});
+        });
+      }
+    },
+    [studentId, profile]
+  );
+
+  // extras (opcional): { answers: [{q, selected, correct}], emotion, lessonUuid }
+  // Lee el estado desde localStorage (siempre fresco) para no hacer efectos
+  // dentro del updater de React (evita inserts duplicados con StrictMode).
+  const recordSession = useCallback(
+    (subjectId, levelId, score, timeMinutes, extras = {}) => {
+      const prev = getStorage('progress', DEFAULT_PROGRESS);
       const today = new Date().toDateString();
       const lastDate = prev.lastStudyDate ? new Date(prev.lastStudyDate).toDateString() : null;
       let streak = prev.streakDays;
@@ -61,7 +117,7 @@ export function useProgress() {
       const stars = Math.floor(score / 20); // 0-5 stars per session
       const history = [
         ...prev.sessionHistory,
-        { date: Date.now(), subjectId, levelId, score, stars, timeMinutes },
+        { date: Date.now(), subjectId, levelId, score, stars, timeMinutes, answers: extras.answers || [] },
       ].slice(-100);
 
       const correct = prev.answers.correct + (score > 0 ? Math.round((score / 100) * 5) : 0);
@@ -84,9 +140,20 @@ export function useProgress() {
         next.achievements = [...prev.achievements, ...unlocked];
       }
 
-      return next;
-    });
-  }, [updateProgress]);
+      setStorage('progress', next);
+      setProgress(next);
+
+      // Nube: registrar sesión + notas + análisis (no bloquea la UI)
+      if (useCloud) {
+        try {
+          syncToCloud(subjectId, score, timeMinutes, extras, next);
+        } catch {
+          // sin red o error de nube → el registro local ya quedó
+        }
+      }
+    },
+    [useCloud, syncToCloud]
+  );
 
   const getNextRecommendation = useCallback((profile) => {
     const { subjectProgress } = progress;

@@ -1,10 +1,20 @@
-import { useState, useCallback } from 'react';
-import { getStorage, setStorage } from '../utils/storage';
+// Hook de perfiles de estudiante — MULTI-ESTUDIANTE por familia.
+// - Fuente de verdad: Supabase (tabla `students`) cuando hay nube + login.
+// - localStorage (prefijo evi_) actúa como caché offline: la app funciona
+//   sin red y sincroniza al volver.
+// - Migración: perfiles viejos guardados como `evi_profile` se convierten en
+//   estudiantes al primer login.
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { getStorage, setStorage, removeStorage } from '../utils/storage';
+import { supabase, isCloudConfigured } from '../lib/supabase';
 
 const DEFAULT_PROFILE = {
   name: '',
   age: null,
   avatar: '🦉',
+  countryCode: null,   // ISO del país (define el currículo)
+  gradeId: null,       // grado dentro del currículo del país
+  pin: null,           // PIN de 4 dígitos; null = sin PIN (perfiles migrados)
   learningStyle: null, // 'visual' | 'auditivo' | 'kinestesico' | 'lector' | 'multisensorial'
   interests: [],
   strengths: [],
@@ -12,7 +22,7 @@ const DEFAULT_PROFILE = {
   createdAt: null,
   onboardingComplete: false,
 
-  // ===== NUEVO: Necesidades y dificultades =====
+  // ===== Necesidades y dificultades =====
   needsAssessment: {
     completed: false,
     readingDifficulty: null, // 'none' | 'mild' | 'moderate' | 'severe' (dislexia)
@@ -25,10 +35,10 @@ const DEFAULT_PROFILE = {
     emotionalRegulation: 'typical', // 'typical' | 'needs_support' | 'intense'
   },
 
-  // ===== NUEVO: Modelo pedagógico preferido =====
+  // ===== Modelo pedagógico preferido =====
   pedagogicalModel: 'adaptive', // 'adaptive' | 'montessori' | 'flipped' | 'gamified' | 'udl' | 'multisensory'
 
-  // ===== NUEVO: Configuración de accesibilidad =====
+  // ===== Configuración de accesibilidad =====
   accessibility: {
     highContrast: false,
     largeText: false,
@@ -42,7 +52,7 @@ const DEFAULT_PROFILE = {
     positiveReinforcement: 'badges', // 'badges' | 'animations' | 'voice' | 'simple'
   },
 
-  // ===== NUEVO: Historial emocional =====
+  // ===== Historial emocional =====
   emotionalHistory: [], // { date, mood, energy, frustration, notes }
 };
 
@@ -94,16 +104,206 @@ export const PEDAGOGICAL_MODELS = {
   },
 };
 
-export function useStudentProfile() {
-  const [profile, setProfile] = useState(() => getStorage('profile', DEFAULT_PROFILE));
+// ---------------------------------------------------------------------------
+// Mapeo perfil (app) <-> fila (tabla students de Supabase)
+// Todo lo que no tiene columna propia viaja dentro de `needs` (jsonb).
+// ---------------------------------------------------------------------------
+const NO_CLOUD_PIN = '0000'; // la BD exige 4 dígitos; null local se guarda así
 
-  const updateProfile = useCallback((updates) => {
-    setProfile((prev) => {
-      const next = { ...prev, ...updates };
-      setStorage('profile', next);
-      return next;
-    });
+function profileToRow(p, familyId) {
+  return {
+    family_id: familyId,
+    nombre: p.name,
+    country_code: p.countryCode || 'do',
+    grade_id: p.gradeId || '1',
+    pin: p.pin || NO_CLOUD_PIN,
+    avatar: p.avatar,
+    needs: {
+      age: p.age,
+      learningStyle: p.learningStyle,
+      interests: p.interests,
+      strengths: p.strengths,
+      weaknesses: p.weaknesses,
+      onboardingComplete: p.onboardingComplete,
+      createdAt: p.createdAt,
+      needsAssessment: p.needsAssessment,
+      pedagogicalModel: p.pedagogicalModel,
+      accessibility: p.accessibility,
+      emotionalHistory: p.emotionalHistory,
+    },
+  };
+}
+
+function rowToProfile(row) {
+  const n = row.needs || {};
+  return {
+    ...DEFAULT_PROFILE,
+    id: row.id,
+    name: row.nombre,
+    countryCode: row.country_code,
+    gradeId: row.grade_id,
+    pin: row.pin === NO_CLOUD_PIN ? null : row.pin,
+    avatar: row.avatar,
+    age: n.age ?? null,
+    learningStyle: n.learningStyle ?? null,
+    interests: n.interests || [],
+    strengths: n.strengths || [],
+    weaknesses: n.weaknesses || [],
+    onboardingComplete: n.onboardingComplete ?? true,
+    createdAt: n.createdAt || null,
+    needsAssessment: { ...DEFAULT_PROFILE.needsAssessment, ...(n.needsAssessment || {}) },
+    pedagogicalModel: n.pedagogicalModel || 'adaptive',
+    accessibility: { ...DEFAULT_PROFILE.accessibility, ...(n.accessibility || {}) },
+    emotionalHistory: n.emotionalHistory || [],
+  };
+}
+
+const isLocalId = (id) => String(id).startsWith('local-');
+const newLocalId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+// Carga inicial desde caché + migración del perfil viejo (evi_profile)
+function loadStudents() {
+  const cached = getStorage('students', null);
+  if (cached && cached.length > 0) return cached;
+
+  // Migración: perfil único de la versión anterior → primer estudiante
+  const legacy = getStorage('profile', null);
+  if (legacy && legacy.name) {
+    const migrated = {
+      ...DEFAULT_PROFILE,
+      ...legacy,
+      needsAssessment: { ...DEFAULT_PROFILE.needsAssessment, ...(legacy.needsAssessment || {}) },
+      accessibility: { ...DEFAULT_PROFILE.accessibility, ...(legacy.accessibility || {}) },
+      id: newLocalId(),
+      pin: null, // los perfiles viejos no tenían PIN: entran directo
+    };
+    setStorage('students', [migrated]);
+    setStorage('active_student', migrated.id);
+    removeStorage('profile'); // ya migrado
+    return [migrated];
+  }
+  return [];
+}
+
+export function useStudentProfile(familyId) {
+  const [students, setStudents] = useState(loadStudents);
+  const [activeId, setActiveId] = useState(() => getStorage('active_student', null));
+  const [draft, setDraft] = useState(() => ({ ...DEFAULT_PROFILE, id: newLocalId() }));
+  const [syncing, setSyncing] = useState(false);
+  const migratedRef = useRef(false);
+
+  const useCloud = isCloudConfigured && familyId && !String(familyId).startsWith('demo-');
+
+  // Perfil activo (mantiene la API anterior para el resto de la app)
+  const profile = students.find((s) => s.id === activeId) || { ...DEFAULT_PROFILE };
+
+  const persist = useCallback((next) => {
+    setStudents(next);
+    setStorage('students', next);
   }, []);
+
+  // Subir un estudiante a la nube (fire-and-forget; la caché local ya quedó)
+  const pushToCloud = useCallback(
+    (student) => {
+      if (!useCloud || isLocalId(student.id)) return;
+      supabase
+        .from('students')
+        .update(profileToRow(student, familyId))
+        .eq('id', student.id)
+        .then(() => {});
+    },
+    [useCloud, familyId]
+  );
+
+  // ---- Sincronización nube → local y migración local → nube al primer login
+  useEffect(() => {
+    if (!useCloud || migratedRef.current) return;
+    migratedRef.current = true;
+
+    (async () => {
+      setSyncing(true);
+      try {
+        // 1. Migrar estudiantes solo-locales a Supabase
+        const current = getStorage('students', []);
+        const merged = [...current];
+        for (let i = 0; i < merged.length; i++) {
+          if (!isLocalId(merged[i].id)) continue;
+          const { data, error } = await supabase
+            .from('students')
+            .insert(profileToRow(merged[i], familyId))
+            .select()
+            .single();
+          if (!error && data) merged[i] = rowToProfile(data);
+        }
+
+        // 2. Traer de la nube los que no estén en caché (otro dispositivo)
+        const { data: rows } = await supabase
+          .from('students')
+          .select('*')
+          .eq('family_id', familyId)
+          .order('created_at', { ascending: true });
+        (rows || []).forEach((row) => {
+          if (!merged.some((s) => s.id === row.id)) merged.push(rowToProfile(row));
+        });
+
+        persist(merged);
+      } finally {
+        setSyncing(false);
+      }
+    })();
+  }, [useCloud, familyId, persist]);
+
+  // -------------------------------------------------------------------------
+  // Draft: estudiante en construcción durante el onboarding
+  // -------------------------------------------------------------------------
+  const updateDraft = useCallback((updates) => {
+    setDraft((prev) => ({ ...prev, ...updates }));
+  }, []);
+
+  const resetDraft = useCallback(() => {
+    setDraft({ ...DEFAULT_PROFILE, id: newLocalId() });
+  }, []);
+
+  // Crear estudiante: guarda local primero (offline-tolerant), luego nube
+  const createStudent = useCallback(
+    async (overrides = {}) => {
+      const student = { ...draft, ...overrides, createdAt: draft.createdAt || Date.now() };
+      let final = student;
+
+      if (useCloud) {
+        const { data, error } = await supabase
+          .from('students')
+          .insert(profileToRow(student, familyId))
+          .select()
+          .single();
+        if (!error && data) final = rowToProfile(data);
+      }
+
+      const next = [...getStorage('students', students), final];
+      persist(next);
+      setActiveId(final.id);
+      setStorage('active_student', final.id);
+      resetDraft();
+      return final;
+    },
+    [draft, useCloud, familyId, students, persist, resetDraft]
+  );
+
+  // -------------------------------------------------------------------------
+  // Actualizaciones del perfil ACTIVO (API compatible con la versión anterior)
+  // -------------------------------------------------------------------------
+  const updateProfile = useCallback(
+    (updates) => {
+      setStudents((prev) => {
+        const next = prev.map((s) => (s.id === activeId ? { ...s, ...updates } : s));
+        setStorage('students', next);
+        const updated = next.find((s) => s.id === activeId);
+        if (updated) pushToCloud(updated);
+        return next;
+      });
+    },
+    [activeId, pushToCloud]
+  );
 
   const setLearningStyle = useCallback((style) => {
     updateProfile({ learningStyle: style });
@@ -113,47 +313,43 @@ export function useStudentProfile() {
     updateProfile({ pedagogicalModel: model });
   }, [updateProfile]);
 
-  const updateNeedsAssessment = useCallback((updates) => {
-    setProfile((prev) => {
-      const next = {
-        ...prev,
-        needsAssessment: { ...prev.needsAssessment, ...updates },
-      };
-      setStorage('profile', next);
-      return next;
-    });
-  }, []);
+  const updateNeedsAssessment = useCallback(
+    (updates) => {
+      const current = students.find((s) => s.id === activeId);
+      if (!current) return;
+      updateProfile({ needsAssessment: { ...current.needsAssessment, ...updates } });
+    },
+    [students, activeId, updateProfile]
+  );
 
-  const updateAccessibility = useCallback((updates) => {
-    setProfile((prev) => {
-      const next = {
-        ...prev,
-        accessibility: { ...prev.accessibility, ...updates },
-      };
-      setStorage('profile', next);
-      return next;
-    });
-  }, []);
+  const updateAccessibility = useCallback(
+    (updates) => {
+      const current = students.find((s) => s.id === activeId);
+      if (!current) return;
+      updateProfile({ accessibility: { ...current.accessibility, ...updates } });
+    },
+    [students, activeId, updateProfile]
+  );
 
-  const addEmotionalCheckIn = useCallback((checkIn) => {
-    setProfile((prev) => {
-      const next = {
-        ...prev,
-        emotionalHistory: [...prev.emotionalHistory.slice(-30), { ...checkIn, date: Date.now() }],
-      };
-      setStorage('profile', next);
-      return next;
-    });
-  }, []);
+  const addEmotionalCheckIn = useCallback(
+    (checkIn) => {
+      const current = students.find((s) => s.id === activeId);
+      if (!current) return;
+      updateProfile({
+        emotionalHistory: [...current.emotionalHistory.slice(-30), { ...checkIn, date: Date.now() }],
+      });
+    },
+    [students, activeId, updateProfile]
+  );
 
-  const addInterest = useCallback((interest) => {
-    setProfile((prev) => {
-      if (prev.interests.includes(interest)) return prev;
-      const next = { ...prev, interests: [...prev.interests, interest] };
-      setStorage('profile', next);
-      return next;
-    });
-  }, []);
+  const addInterest = useCallback(
+    (interest) => {
+      const current = students.find((s) => s.id === activeId);
+      if (!current || current.interests.includes(interest)) return;
+      updateProfile({ interests: [...current.interests, interest] });
+    },
+    [students, activeId, updateProfile]
+  );
 
   const completeOnboarding = useCallback(() => {
     updateProfile({ onboardingComplete: true, createdAt: Date.now() });
@@ -163,10 +359,35 @@ export function useStudentProfile() {
     updateNeedsAssessment({ completed: true });
   }, [updateNeedsAssessment]);
 
-  const resetProfile = useCallback(() => {
-    setStorage('profile', DEFAULT_PROFILE);
-    setProfile(DEFAULT_PROFILE);
+  // -------------------------------------------------------------------------
+  // Multi-estudiante: selector con PIN
+  // -------------------------------------------------------------------------
+  const selectStudent = useCallback((id, pin) => {
+    const student = getStorage('students', []).find((s) => s.id === id);
+    if (!student) return false;
+    if (student.pin && student.pin !== pin) return false;
+    setActiveId(id);
+    setStorage('active_student', id);
+    return true;
   }, []);
+
+  const lockStudent = useCallback(() => {
+    setActiveId(null);
+    removeStorage('active_student');
+  }, []);
+
+  const resetProfile = useCallback(() => {
+    // Borra SOLO el estudiante activo (en la nube también, si aplica)
+    const current = getStorage('students', []);
+    const victim = current.find((s) => s.id === activeId);
+    const next = current.filter((s) => s.id !== activeId);
+    persist(next);
+    setActiveId(null);
+    removeStorage('active_student');
+    if (useCloud && victim && !isLocalId(victim.id)) {
+      supabase.from('students').delete().eq('id', victim.id).then(() => {});
+    }
+  }, [activeId, useCloud, persist]);
 
   // Helper: determinar si el niño necesita adaptaciones especiales
   const hasSpecialNeeds = useCallback(() => {
@@ -222,6 +443,7 @@ export function useStudentProfile() {
   }, [profile.needsAssessment]);
 
   return {
+    // Perfil activo (API compatible)
     profile,
     updateProfile,
     setLearningStyle,
@@ -237,5 +459,16 @@ export function useStudentProfile() {
     pedagogicalModels: PEDAGOGICAL_MODELS,
     hasSpecialNeeds,
     getRecommendedAdaptations,
+    // Multi-estudiante
+    students,
+    activeId,
+    selectStudent,
+    lockStudent,
+    syncing,
+    // Onboarding (borrador)
+    draft,
+    updateDraft,
+    resetDraft,
+    createStudent,
   };
 }

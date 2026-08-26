@@ -1,12 +1,68 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile } from 'lucide-react';
+import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile, MessageCircleHeart, Lightbulb, StickyNote, Sparkles } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
+import { getCountry, getGrade } from '../../lib/curricula';
+import { isTutorConfigured, generateLesson, adaptAiLesson } from '../../lib/tutorApi';
+import { supabase, isCloudConfigured } from '../../lib/supabase';
 import ProgressRing from './ProgressRing';
 
-export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onViewProgress, onOpenAccessibility }) {
+export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
   const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars, adaptations = [], emotionalState = 'neutral' } = adaptiveEngine;
   const [showModelInfo, setShowModelInfo] = useState(false);
+  const [topicSel, setTopicSel] = useState({});        // tema elegido por materia del currículo
+  const [generando, setGenerando] = useState(null);   // id de materia generando
+  const [errorIA, setErrorIA] = useState(null);
+
+  // Minutos estudiados hoy (del historial local de sesiones)
+  const todayStr = new Date().toDateString();
+  const todayMinutes = (progress.sessionHistory || [])
+    .filter((s) => new Date(s.date).toDateString() === todayStr)
+    .reduce((a, s) => a + (s.timeMinutes || 0), 0);
+
+  // Materias del currículo del país/grado del estudiante
+  const grade = getGrade(profile.countryCode, profile.gradeId);
+
+  // Crear una lección nueva con IA para un tema sin lección hardcodeada
+  const crearLeccionIA = async (subject) => {
+    const topic = topicSel[subject.id] || subject.topics[0];
+    setGenerando(subject.id);
+    setErrorIA(null);
+    const data = await generateLesson({
+      country: getCountry(profile.countryCode)?.name,
+      grade: grade?.label,
+      subject: subject.name,
+      topic,
+      age: profile.age,
+    });
+    const lesson = adaptAiLesson(data, { subjectName: subject.name });
+    if (!lesson) {
+      setGenerando(null);
+      setErrorIA('No se pudo crear la lección ahora. Intenta de nuevo en un momento.');
+      return;
+    }
+    // Cachear en la nube (si está configurada; la escritura puede requerir
+    // service-role en el servidor — si falla, la lección igual se juega)
+    if (isCloudConfigured && supabase) {
+      try {
+        await supabase.from('lessons').upsert(
+          {
+            country_code: profile.countryCode || 'do',
+            grade: grade?.label || '',
+            subject: subject.name,
+            topic,
+            content: data,
+            source: 'ai',
+          },
+          { onConflict: 'country_code,grade,subject,topic' }
+        );
+      } catch {
+        // sin permiso o sin red: no bloquea el juego
+      }
+    }
+    setGenerando(null);
+    onStartAiLesson(lesson, subject.id, topic);
+  };
 
   const getOverallProgress = () => {
     const subjects = Object.keys(progress.subjectProgress);
@@ -65,6 +121,10 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
             <span className="text-sm text-forest-600">
               Estilo: <span className="font-bold text-forest-700 capitalize">{profile.learningStyle}</span>
             </span>
+            <span className="flex items-center gap-1 text-xs font-bold bg-sky-50 text-sky-600 rounded-full px-2 py-1">
+              <Clock size={12} />
+              Hoy: {todayMinutes} min
+            </span>
             <button
               onClick={() => setShowModelInfo(!showModelInfo)}
               className="flex items-center gap-1 text-xs font-bold bg-forest-50 hover:bg-forest-100 rounded-full px-2 py-1 transition-colors"
@@ -98,6 +158,47 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           <span className="text-xs font-bold text-forest-500 mt-2">Tu avance</span>
         </div>
       </motion.div>
+
+      {/* Mensajes de Papá/Mamá (llegan en vivo si hay nube) */}
+      {parentMessages.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-5 border-l-4 border-berry-400 space-y-3"
+        >
+          <div className="flex items-center gap-2">
+            <MessageCircleHeart size={18} className="text-berry-500" />
+            <h3 className="text-sm font-black text-forest-900">Mensajes de Papá / Mamá</h3>
+          </div>
+          {parentMessages.slice(0, 3).map((m) => (
+            <div key={m.id} className="flex items-start justify-between gap-3 bg-white/70 rounded-2xl px-4 py-3">
+              <div className="flex items-start gap-2">
+                {m.tipo === 'pista' ? (
+                  <Lightbulb size={16} className="text-sun-500 shrink-0 mt-0.5" />
+                ) : m.tipo === 'nota' ? (
+                  <StickyNote size={16} className="text-sky-500 shrink-0 mt-0.5" />
+                ) : (
+                  <MessageCircleHeart size={16} className="text-berry-400 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <span className="block text-xs font-bold uppercase tracking-wider text-forest-400">
+                    {m.tipo === 'pista' ? 'Pista' : m.tipo === 'nota' ? 'Nota' : 'Ánimo'}
+                  </span>
+                  <p className="text-sm font-semibold text-forest-800">{m.texto}</p>
+                </div>
+              </div>
+              {!m.leido && onReadMessage && (
+                <button
+                  onClick={() => onReadMessage(m.id)}
+                  className="text-xs font-bold text-berry-500 hover:text-berry-700 shrink-0"
+                >
+                  Marcar leído
+                </button>
+              )}
+            </div>
+          ))}
+        </motion.div>
+      )}
 
       {/* Accessibility quick actions */}
       {(profile.accessibility?.dyslexicFont || profile.accessibility?.largeText || profile.accessibility?.highContrast || profile.accessibility?.reduceMotion) && (
@@ -255,9 +356,49 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
         </div>
       </div>
 
-      {/* Achievements */}
-      {progress.achievements.length > 0 && (
+      {/* Currículo de tu grado: crear lecciones nuevas con IA */}
+      {grade?.subjects?.length > 0 && (
         <div>
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles size={18} className="text-lavender-500" />
+            <h3 className="text-lg font-black text-forest-900">Materias de tu grado ({grade.label})</h3>
+          </div>
+          {errorIA && (
+            <p className="mb-3 text-xs font-bold text-rose-500">{errorIA}</p>
+          )}
+          <div className="grid sm:grid-cols-2 gap-3">
+            {grade.subjects.map((subject) => (
+              <div key={subject.id} className="glass-card rounded-2xl p-4">
+                <h4 className="font-black text-forest-900 text-sm mb-2">{subject.name}</h4>
+                <select
+                  value={topicSel[subject.id] || subject.topics[0]}
+                  onChange={(e) => setTopicSel((prev) => ({ ...prev, [subject.id]: e.target.value }))}
+                  className="w-full mb-3 bg-white border-2 border-forest-100 rounded-xl px-3 py-2 text-xs font-bold text-forest-700 focus:outline-none focus:border-forest-300"
+                >
+                  {subject.topics.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                {isTutorConfigured ? (
+                  <button
+                    onClick={() => crearLeccionIA(subject)}
+                    disabled={generando !== null}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-lavender-500 text-white hover:bg-lavender-600 disabled:opacity-50 transition-all"
+                  >
+                    <Sparkles size={12} />
+                    {generando === subject.id ? 'Creando tu lección…' : 'Crear lección nueva con IA'}
+                  </button>
+                ) : (
+                  <span className="text-xs font-bold text-forest-300">Lecciones con IA: próximamente</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Achievements */}
+      {progress.achievements.length > 0 && (        <div>
           <div className="flex items-center gap-2 mb-4">
             <Star size={18} className="text-sun-500" />
             <h3 className="text-lg font-black text-forest-900">Tus logros</h3>

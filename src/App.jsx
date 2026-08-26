@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useAuth } from './hooks/useAuth';
 import { useStudentProfile } from './hooks/useStudentProfile';
 import { useProgress } from './hooks/useProgress';
 import { useAdaptiveEngine } from './hooks/useAdaptiveEngine';
+import { useParentMessages } from './hooks/useParentMessages';
 import Layout from './components/Layout';
+import ParentAuth from './components/Auth/ParentAuth';
+import StudentPicker from './components/StudentPicker';
 import Welcome from './components/Onboarding/Welcome';
 import ProfileCreator from './components/Onboarding/ProfileCreator';
 import NeedsAssessment from './components/Onboarding/NeedsAssessment';
@@ -14,6 +18,7 @@ import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
 import AccessibilitySettings from './components/Student/AccessibilitySettings';
 
 export default function App() {
+  const auth = useAuth();
   const {
     profile,
     updateProfile,
@@ -29,16 +34,26 @@ export default function App() {
     pedagogicalModels,
     hasSpecialNeeds,
     getRecommendedAdaptations,
-  } = useStudentProfile();
+    students,
+    activeId,
+    selectStudent,
+    lockStudent,
+    draft,
+    updateDraft,
+    resetDraft,
+    createStudent,
+  } = useStudentProfile(auth.familyId);
 
-  const { progress, recordSession, getNextRecommendation, getSubjectProgress, getLevelProgress, achievements, resetProgress } = useProgress();
+  const { progress, recordSession, getNextRecommendation, getSubjectProgress, getLevelProgress, achievements, resetProgress } = useProgress(activeId, profile);
   const adaptiveEngine = useAdaptiveEngine(profile, progress);
+  const { messages: parentMessages, sendMessage: sendParentMessage, markRead: markParentMessageRead } = useParentMessages(activeId, auth.familyId);
 
   const [view, setView] = useState('welcome');
   const [lessonParams, setLessonParams] = useState(null);
   const [currentNav, setCurrentNav] = useState('dashboard');
   const [showEmotionalCheckIn, setShowEmotionalCheckIn] = useState(false);
   const [showAccessibility, setShowAccessibility] = useState(false);
+  const [creatingNew, setCreatingNew] = useState(false); // onboarding de estudiante nuevo (usa draft)
 
   // Determinar si necesita check-in emocional antes de la lección
   const needsEmotionalCheckIn = useCallback(() => {
@@ -51,19 +66,57 @@ export default function App() {
     return hoursSince > 48;
   }, [profile.emotionalHistory, profile.accessibility]);
 
-  const startOnboarding = () => setView('profile');
+  const startOnboarding = () => setView('auth'); // Welcome → cuenta de Papá/Mamá
   const goToNeedsAssessment = () => setView('needs');
 
-  const finishNeedsAssessment = useCallback((result) => {
-    setLearningStyle(result.learningStyle);
-    setPedagogicalModel(result.pedagogicalModel);
-    updateNeedsAssessment(result.needsAssessment);
-    updateAccessibility(result.accessibility);
-    completeNeedsAssessment();
-    completeOnboarding();
+  // Elegir estudiante existente en el selector (con o sin PIN)
+  const handleSelectStudent = useCallback((id, pin) => {
+    const ok = selectStudent(id, pin);
+    if (ok) {
+      setView('dashboard');
+      setCurrentNav('dashboard');
+    }
+    return ok;
+  }, [selectStudent]);
+
+  // "Agregar estudiante" desde el selector → onboarding con borrador nuevo
+  const startNewStudent = useCallback(() => {
+    resetDraft();
+    setCreatingNew(true);
+    setView('profile');
+  }, [resetDraft]);
+
+  // Cerrar sesión de Papá/Mamá y volver al inicio
+  const handleLogout = useCallback(async () => {
+    await auth.logout();
+    lockStudent();
+    setCreatingNew(false);
+    setView('welcome');
+    setCurrentNav('dashboard');
+  }, [auth, lockStudent]);
+
+  const finishNeedsAssessment = useCallback(async (result) => {
+    if (creatingNew) {
+      // Estudiante nuevo: crear con todo lo del onboarding
+      await createStudent({
+        learningStyle: result.learningStyle,
+        pedagogicalModel: result.pedagogicalModel,
+        needsAssessment: { ...draft.needsAssessment, ...result.needsAssessment, completed: true },
+        accessibility: { ...draft.accessibility, ...result.accessibility },
+        onboardingComplete: true,
+      });
+      setCreatingNew(false);
+    } else {
+      setLearningStyle(result.learningStyle);
+      setPedagogicalModel(result.pedagogicalModel);
+      updateNeedsAssessment(result.needsAssessment);
+      updateAccessibility(result.accessibility);
+      completeNeedsAssessment();
+      completeOnboarding();
+    }
     setView('dashboard');
     setCurrentNav('dashboard');
-  }, [setLearningStyle, setPedagogicalModel, updateNeedsAssessment, updateAccessibility, completeNeedsAssessment, completeOnboarding]);
+  }, [creatingNew, createStudent, draft, setLearningStyle, setPedagogicalModel, updateNeedsAssessment, updateAccessibility, completeNeedsAssessment, completeOnboarding]);
 
   const startLesson = useCallback((subjectId, levelId, index) => {
     // Si necesita check-in emocional, mostrar primero
@@ -82,12 +135,19 @@ export default function App() {
     setView('lesson');
   }, [addEmotionalCheckIn]);
 
-  const finishLesson = useCallback((subjectId, levelId, score, timeMinutes) => {
-    recordSession(subjectId, levelId, score, timeMinutes);
+  const finishLesson = useCallback((subjectId, levelId, score, timeMinutes, extras = {}) => {
+    const emotion = profile.emotionalHistory?.slice(-1)[0]?.mood || null;
+    recordSession(subjectId, levelId, score, timeMinutes, { ...extras, emotion });
     setView('dashboard');
     setCurrentNav('dashboard');
     setLessonParams(null);
-  }, [recordSession]);
+  }, [recordSession, profile.emotionalHistory]);
+
+  // Lección generada por IA (desde el Dashboard del estudiante)
+  const startAiLesson = useCallback((lesson, subjectId, topic) => {
+    setLessonParams({ customLesson: lesson, subjectId, levelId: topic });
+    setView('lesson');
+  }, []);
 
   const goHome = () => {
     setView('dashboard');
@@ -117,7 +177,7 @@ export default function App() {
     if (confirm('¿Estás seguro de que quieres borrar todo el progreso y empezar de nuevo?')) {
       resetProfile();
       resetProgress();
-      setView('welcome');
+      setView('picker');
       setCurrentNav('dashboard');
       setShowEmotionalCheckIn(false);
       setShowAccessibility(false);
@@ -134,8 +194,8 @@ export default function App() {
     html.classList.toggle('reduce-motion', acc.reduceMotion);
   }, [profile.accessibility]);
 
-  // Onboarding flow
-  if (!profile.onboardingComplete) {
+  // 1) Sin sesión de Papá/Mamá: portada → login/registro (o modo demo)
+  if (!auth.session) {
     return (
       <AnimatePresence mode="wait">
         {view === 'welcome' && (
@@ -143,26 +203,65 @@ export default function App() {
             <Welcome onStart={startOnboarding} />
           </motion.div>
         )}
+        {view === 'auth' && (
+          <motion.div key="auth" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <ParentAuth auth={auth} onAuthenticated={() => setView('picker')} onBack={() => setView('welcome')} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
+
+  // 2) Con sesión pero sin estudiante activo: selector (o onboarding de uno nuevo)
+  if (!activeId) {
+    return (
+      <AnimatePresence mode="wait">
         {view === 'profile' && (
           <motion.div key="profile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <ProfileCreator
-              profile={profile}
-              updateProfile={updateProfile}
+              profile={draft}
+              updateProfile={updateDraft}
               avatars={avatars}
               onNext={goToNeedsAssessment}
-              onBack={() => setView('welcome')}
+              onBack={() => { setCreatingNew(false); setView('picker'); }}
             />
           </motion.div>
         )}
         {view === 'needs' && (
           <motion.div key="needs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <NeedsAssessment
-              profile={profile}
+              profile={draft}
               onComplete={finishNeedsAssessment}
               onBack={() => setView('profile')}
             />
           </motion.div>
         )}
+        {view !== 'profile' && view !== 'needs' && (
+          <motion.div key="picker" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <StudentPicker
+              students={students}
+              onSelect={handleSelectStudent}
+              onAddStudent={startNewStudent}
+              onLogout={handleLogout}
+              isDemo={auth.isDemo}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
+
+  // 3) Estudiante seleccionado pero sin onboarding completo (perfil migrado viejo)
+  if (!profile.onboardingComplete) {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.div key="needs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <NeedsAssessment
+            profile={profile}
+            onComplete={finishNeedsAssessment}
+            onBack={() => { lockStudent(); setView('picker'); }}
+          />
+        </motion.div>
       </AnimatePresence>
     );
   }
@@ -201,8 +300,11 @@ export default function App() {
               progress={progress}
               adaptiveEngine={adaptiveEngine}
               onStartLesson={startLesson}
+              onStartAiLesson={startAiLesson}
               onViewProgress={goToProgress}
               onOpenAccessibility={() => setShowAccessibility(true)}
+              parentMessages={parentMessages}
+              onReadMessage={markParentMessageRead}
             />
           </motion.div>
         )}
@@ -219,6 +321,7 @@ export default function App() {
               subjectId={lessonParams.subjectId}
               levelId={lessonParams.levelId}
               lessonIndex={lessonParams.index}
+              customLesson={lessonParams.customLesson || null}
               learningStyle={profile.learningStyle}
               profile={profile}
               adaptiveEngine={adaptiveEngine}
@@ -241,6 +344,8 @@ export default function App() {
               progress={progress}
               adaptiveEngine={adaptiveEngine}
               onOpenAccessibility={() => setShowAccessibility(true)}
+              onSendMessage={sendParentMessage}
+              studentId={activeId}
             />
           </motion.div>
         )}
