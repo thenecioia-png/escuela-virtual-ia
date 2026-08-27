@@ -13,10 +13,12 @@ import ProfileCreator from './components/Onboarding/ProfileCreator';
 import NeedsAssessment from './components/Onboarding/NeedsAssessment';
 import Dashboard from './components/Student/Dashboard';
 import LessonPlayer from './components/Student/LessonPlayer';
+import ExamPlayer from './components/Student/ExamPlayer';
 import ParentDashboard from './components/Parent/ParentDashboard';
 import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
 import AccessibilitySettings from './components/Student/AccessibilitySettings';
 import { getSharedFamilyId, fetchSharedStudents, cacheSharedStudents } from './lib/familyShare';
+import { buildExam, examPrimarySubject } from './lib/exams';
 import { DEFAULT_PROFILE } from './hooks/useStudentProfile';
 
 export default function App() {
@@ -52,6 +54,7 @@ export default function App() {
 
   const [view, setView] = useState('welcome');
   const [lessonParams, setLessonParams] = useState(null);
+  const [examQuestions, setExamQuestions] = useState(null);
   const [currentNav, setCurrentNav] = useState('dashboard');
   const [showEmotionalCheckIn, setShowEmotionalCheckIn] = useState(false);
   const [showAccessibility, setShowAccessibility] = useState(false);
@@ -169,6 +172,24 @@ export default function App() {
     setLessonParams({ customLesson: lesson, subjectId, levelId: topic });
     setView('lesson');
   }, []);
+
+  // Examen de repaso (retención): construye preguntas de lo ya practicado
+  const startExam = useCallback(() => {
+    const questions = buildExam(profile, progress);
+    if (!questions || questions.length === 0) return;
+    setExamQuestions(questions);
+    setView('exam');
+  }, [profile, progress]);
+
+  const finishExam = useCallback((percentage, timeMinutes, answers) => {
+    if (examQuestions && examQuestions.length > 0) {
+      const subjectId = examPrimarySubject(examQuestions);
+      recordSession(subjectId, 'repaso', percentage, timeMinutes, { answers, isExam: true });
+    }
+    setExamQuestions(null);
+    setView('dashboard');
+    setCurrentNav('dashboard');
+  }, [examQuestions, recordSession]);
 
   const goHome = () => {
     setView('dashboard');
@@ -346,6 +367,7 @@ export default function App() {
               adaptiveEngine={adaptiveEngine}
               onStartLesson={startLesson}
               onStartAiLesson={startAiLesson}
+              onStartExam={startExam}
               onViewProgress={goToProgress}
               onOpenAccessibility={() => setShowAccessibility(true)}
               parentMessages={parentMessages}
@@ -371,6 +393,22 @@ export default function App() {
               profile={profile}
               adaptiveEngine={adaptiveEngine}
               onFinish={finishLesson}
+              onHome={goHome}
+            />
+          </motion.div>
+        )}
+
+        {view === 'exam' && examQuestions && (
+          <motion.div
+            key="exam"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            <ExamPlayer
+              questions={examQuestions}
+              onFinish={finishExam}
               onHome={goHome}
             />
           </motion.div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap, Send, Sparkles, MessageCircleHeart, GraduationCap, Radio, FileText, QrCode, Copy, Check } from 'lucide-react';
+import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap, Send, Sparkles, MessageCircleHeart, GraduationCap, Radio, RefreshCw, FileText, QrCode, Copy, Check } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { isTutorConfigured, generateHint, dailyRecommendation } from '../../lib/tutorApi';
 import { getCountry, getGrade } from '../../lib/curricula';
@@ -115,6 +115,7 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
   };
 
   const recentSessions = (progress.sessionHistory || []).slice(-7).reverse();
+  const examCount = (progress.sessionHistory || []).filter((s) => s.isExam).length;
   const recentEmotions = (profile.emotionalHistory || []).slice(-5).reverse();
 
   // ---- Fase 2/4: nube (boleta, actividad de hoy en vivo, insights de IA) ----
@@ -124,6 +125,8 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
   const [insight, setInsight] = useState(null);           // último ai_insights
   const [resumen, setResumen] = useState(null);           // resumen semanal de la IA
   const [cargandoResumen, setCargandoResumen] = useState(false);
+  const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Actividad de hoy (local): fallback cuando no hay nube
   const todayStr = new Date().toDateString();
@@ -201,7 +204,19 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [studentId, useCloud, period]);
+  }, [studentId, useCloud, period, refreshKey]);
+
+  // Indicador de conexión (badge "En vivo" / "Sin conexión")
+  useEffect(() => {
+    const onOn = () => setOnline(true);
+    const onOff = () => setOnline(false);
+    window.addEventListener('online', onOn);
+    window.addEventListener('offline', onOff);
+    return () => {
+      window.removeEventListener('online', onOn);
+      window.removeEventListener('offline', onOff);
+    };
+  }, []);
 
   // Resumen de la semana con IA (lenguaje humano)
   const generarResumen = async () => {
@@ -298,22 +313,31 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
             <Clock size={20} className="text-sky-500" />
             <h3 className="text-lg font-black text-forest-900">Actividad de hoy</h3>
             {useCloud && (
-              <span className="flex items-center gap-1 text-xs font-bold bg-emerald-50 text-emerald-600 rounded-full px-2 py-0.5 border border-emerald-200">
+              <span className={`flex items-center gap-1 text-xs font-bold rounded-full px-2 py-0.5 border ${online ? 'bg-emerald-50 text-emerald-600 border-emerald-200' : 'bg-amber-50 text-amber-600 border-amber-200'}`}>
                 <Radio size={10} />
-                En vivo
+                {online ? 'En vivo' : 'Sin conexión'}
               </span>
             )}
           </div>
-          {isTutorConfigured && (
+          <div className="flex items-center gap-3">
             <button
-              onClick={generarResumen}
-              disabled={cargandoResumen}
-              className="flex items-center gap-1.5 text-xs font-bold text-berry-500 hover:text-berry-700 disabled:opacity-50 transition-colors"
+              onClick={() => setRefreshKey((k) => k + 1)}
+              className="flex items-center gap-1.5 text-xs font-bold text-forest-500 hover:text-forest-700 transition-colors"
             >
-              <FileText size={14} />
-              {cargandoResumen ? 'Generando…' : 'Resumen de la semana'}
+              <RefreshCw size={14} />
+              Actualizar
             </button>
-          )}
+            {isTutorConfigured && (
+              <button
+                onClick={generarResumen}
+                disabled={cargandoResumen}
+                className="flex items-center gap-1.5 text-xs font-bold text-berry-500 hover:text-berry-700 disabled:opacity-50 transition-colors"
+              >
+                <FileText size={14} />
+                {cargandoResumen ? 'Generando…' : 'Resumen de la semana'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div className="bg-white/60 rounded-2xl p-4 text-center">
@@ -781,6 +805,9 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
           <div className="flex items-center gap-2 mb-6">
             <Calendar size={20} className="text-forest-500" />
             <h3 className="text-lg font-black text-forest-900">Actividad reciente</h3>
+            {examCount > 0 && (
+              <span className="text-xs font-bold bg-berry-300 text-forest-900 px-2 py-1 rounded-full">{examCount} examen{examCount === 1 ? '' : 'es'}</span>
+            )}
           </div>
           <div className="space-y-2">
             {recentSessions.map((session, i) => {
@@ -795,9 +822,9 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
                   className="flex items-center justify-between bg-white/60 rounded-xl px-4 py-3"
                 >
                   <div className="flex items-center gap-3">
-                    <span>{subject?.icon}</span>
+                    <span>{session.isExam ? '📝' : subject?.icon}</span>
                     <div>
-                      <p className="text-sm font-bold text-forest-800">{subject?.name}</p>
+                      <p className="text-sm font-bold text-forest-800">{session.isExam ? 'Examen de repaso' : subject?.name}</p>
                       <p className="text-xs text-forest-400">{date}</p>
                     </div>
                   </div>

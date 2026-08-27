@@ -18,28 +18,28 @@
 }
 
 @theme {
-  --color-cream-50: #fefdf9;
-  --color-cream-100: #fdf8ec;
-  --color-cream-200: #f9ecd0;
-  --color-forest-50: #f2f7f2;
-  --color-forest-100: #e0ede0;
-  --color-forest-200: #c3dbc3;
+  --color-cream-50: #e7dbc0;
+  --color-cream-100: #dccfab;
+  --color-cream-200: #c6b38a;
+  --color-forest-50: #e9efe6;
+  --color-forest-100: #d4dfcf;
+  --color-forest-200: #b7c8b1;
   --color-forest-500: #4a7c59;
   --color-forest-600: #3d6649;
   --color-forest-700: #2f4f38;
   --color-forest-900: #1a2e1f;
-  --color-sun-300: #fcd34d;
-  --color-sun-400: #fbbf24;
-  --color-sun-500: #f59e0b;
-  --color-sky-300: #7dd3fc;
-  --color-sky-400: #38bdf8;
-  --color-sky-500: #0ea5e9;
-  --color-berry-300: #f9a8d4;
-  --color-berry-400: #f472b6;
-  --color-berry-500: #ec4899;
-  --color-lavender-300: #c4b5fd;
-  --color-lavender-400: #a78bfa;
-  --color-lavender-500: #8b5cf6;
+  --color-sun-300: #f7d774;
+  --color-sun-400: #eec04d;
+  --color-sun-500: #d99e1a;
+  --color-sky-300: #9cd7f5;
+  --color-sky-400: #5cbce8;
+  --color-sky-500: #2b9ad4;
+  --color-berry-300: #f0b8d4;
+  --color-berry-400: #e58bb6;
+  --color-berry-500: #d66ba0;
+  --color-lavender-300: #cfc4f5;
+  --color-lavender-400: #b5a4ec;
+  --color-lavender-500: #8a70d8;
   --font-display: 'Nunito', 'Segoe UI', sans-serif;
   --font-body: 'Nunito', 'Segoe UI', sans-serif;
   --font-dyslexic: 'OpenDyslexic', 'Nunito', 'Segoe UI', sans-serif;
@@ -174,10 +174,10 @@ html.pictograms .glass-card::before {
 }
 
 .glass-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: #efe6cf;
   /* Sin backdrop-filter: en muchos teléfonos el blur difumina el texto encima */
-  border: 1px solid rgba(224, 237, 224, 0.9);
-  box-shadow: 0 8px 32px rgba(26, 46, 31, 0.08);
+  border: 1px solid #d6c8a4;
+  box-shadow: 0 8px 32px rgba(26, 46, 31, 0.14);
 }
 
 .pattern-dots {

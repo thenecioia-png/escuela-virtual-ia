@@ -1,13 +1,14 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile, MessageCircleHeart, Lightbulb, StickyNote, Sparkles } from 'lucide-react';
+import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile, MessageCircleHeart, Lightbulb, StickyNote, Sparkles, ClipboardList } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { getCountry, getGrade } from '../../lib/curricula';
 import { isTutorConfigured, generateLesson, adaptAiLesson } from '../../lib/tutorApi';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
+import { getStorage, setStorage, removeStorage } from '../../utils/storage';
 import ProgressRing from './ProgressRing';
 
-export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
+export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onStartExam, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
   const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars, adaptations = [], emotionalState = 'neutral' } = adaptiveEngine;
   const [showModelInfo, setShowModelInfo] = useState(false);
   const [topicSel, setTopicSel] = useState({});        // tema elegido por materia del currículo
@@ -20,8 +21,70 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
     .filter((s) => new Date(s.date).toDateString() === todayStr)
     .reduce((a, s) => a + (s.timeMinutes || 0), 0);
 
+  // Examen de repaso "debido" cada 5 sesiones registradas (incluye el propio
+  // examen, que al sumar 1 rompe el múltiplo y deja de mostrarse).
+  const sessionCount = (progress.sessionHistory || []).length;
+  const examDue = sessionCount > 0 && sessionCount % 5 === 0;
+
   // Materias del currículo del país/grado del estudiante
   const grade = getGrade(profile.countryCode, profile.gradeId);
+
+  // Práctica automática del grado real: genera una lección de IA por materia
+  // y la cachea en localStorage para no depender del "Recomendado para ti"
+  // (que antes servía solo contenido hardcodeado de 1°-2°).
+  const [gradeLessons, setGradeLessons] = useState(null);
+  const [cargandoGrado, setCargandoGrado] = useState(false);
+  const [errorGrado, setErrorGrado] = useState(null);
+  const [regenerar, setRegenerar] = useState(0);
+
+  const gradeCacheKey = `grado_${profile.id}_${profile.gradeId}`;
+
+  useEffect(() => {
+    if (!grade?.subjects?.length || !isTutorConfigured) return;
+
+    const cached = getStorage(gradeCacheKey);
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      setGradeLessons(cached);
+      return;
+    }
+
+    let cancelado = false;
+    const preparar = async () => {
+      setCargandoGrado(true);
+      setErrorGrado(null);
+      const results = [];
+      for (const subject of grade.subjects) {
+        if (cancelado) return;
+        try {
+          const data = await generateLesson({
+            country: getCountry(profile.countryCode)?.name,
+            grade: grade.label,
+            subject: subject.name,
+            topic: subject.topics[0],
+            age: profile.age,
+          });
+          const lesson = adaptAiLesson(data, { subjectName: subject.name });
+          if (lesson) {
+            results.push({ ...lesson, subjectId: subject.id, topic: subject.topics[0] });
+          }
+        } catch {
+          // una materia falló; continuamos con el resto
+        }
+      }
+      if (!cancelado) {
+        if (results.length > 0) {
+          setStorage(gradeCacheKey, results);
+          setGradeLessons(results);
+        } else {
+          setErrorGrado('No se pudieron preparar las lecciones ahora. Intenta de nuevo.');
+        }
+        setCargandoGrado(false);
+      }
+    };
+    preparar();
+
+    return () => { cancelado = true; };
+  }, [grade, profile.id, profile.gradeId, profile.countryCode, profile.age, regenerar, gradeCacheKey]);
 
   // Crear una lección nueva con IA para un tema sin lección hardcodeada
   const crearLeccionIA = async (subject) => {
@@ -159,6 +222,32 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
         </div>
       </motion.div>
 
+      {/* Examen de repaso (aparece cada 5 sesiones) */}
+      {examDue && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-5 sm:p-6 border-l-4 border-berry-400 flex flex-col sm:flex-row items-center gap-4"
+        >
+          <div className="text-4xl">📝</div>
+          <div className="flex-1 text-center sm:text-left">
+            <h3 className="text-lg font-black text-forest-900">¡Examen de repaso!</h3>
+            <p className="text-sm text-forest-600">
+              Demuestra todo lo que has aprendido. Mide lo que recuerdas (no sube de nivel).
+            </p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={onStartExam}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold bg-berry-500 text-white hover:opacity-90 transition-all shadow-lg shadow-berry-500/25 shrink-0"
+          >
+            <ClipboardList size={18} />
+            Hacer examen
+          </motion.button>
+        </motion.div>
+      )}
+
       {/* Mensajes de Papá/Mamá (llegan en vivo si hay nube) */}
       {parentMessages.length > 0 && (
         <motion.div
@@ -260,6 +349,69 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
         ))}
       </div>
 
+      {/* Práctica de tu grado (auto-generada con IA) */}
+      {grade?.subjects?.length > 0 && isTutorConfigured && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <BookOpen size={18} className="text-lavender-500" />
+              <h3 className="text-lg font-black text-forest-900">Tu práctica de {grade.label}</h3>
+            </div>
+            {gradeLessons && gradeLessons.length > 0 && (
+              <button
+                onClick={() => {
+                  removeStorage(gradeCacheKey);
+                  setGradeLessons(null);
+                  setRegenerar((r) => r + 1);
+                }}
+                className="text-sm font-bold text-forest-500 hover:text-forest-700 transition-colors"
+              >
+                Preparar más lecciones
+              </button>
+            )}
+          </div>
+          {cargandoGrado && (
+            <p className="text-sm text-forest-500 mb-3 flex items-center gap-2">
+              <Sparkles size={14} className="animate-pulse" /> Preparando tus lecciones del grado…
+            </p>
+          )}
+          {errorGrado && (
+            <p className="mb-3 text-xs font-bold text-rose-500">{errorGrado}</p>
+          )}
+          {gradeLessons && gradeLessons.length > 0 && (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {gradeLessons.map((lesson, i) => {
+                const subject = grade.subjects.find((s) => s.id === lesson.subjectId);
+                return (
+                  <motion.button
+                    key={`${lesson.subjectId}-${i}`}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    whileHover={{ scale: 1.02, y: -2 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => onStartAiLesson(lesson, lesson.subjectId, lesson.topic)}
+                    className="glass-card rounded-2xl p-5 text-left border-l-4 border-l-lavender-500 hover:shadow-lg transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-forest-400">
+                        {lesson.subjectName || subject?.name}
+                      </span>
+                      <Sparkles size={14} className="text-lavender-500" />
+                    </div>
+                    <h4 className="font-black text-forest-900 mb-1">{lesson.title}</h4>
+                    <p className="text-xs text-forest-500 mb-3">{lesson.totalItems} preguntas</p>
+                    <div className="text-xs font-bold px-2 py-1 rounded-lg bg-lavender-50 text-lavender-600 inline-flex items-center gap-1">
+                      <BookOpen size={12} /> Empezar
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Recommendations */}
       {recommendedPath.length > 0 && (
         <div>
@@ -283,7 +435,7 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
                   transition={{ delay: i * 0.15 }}
                   whileHover={{ scale: 1.02, y: -2 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => onStartLesson(lesson.subjectId, lesson.levelId, lesson.difficulty)}
+                  onClick={() => onStartLesson(lesson.subjectId, lesson.levelId, lesson.lessonIndex)}
                   className={`glass-card rounded-2xl p-5 text-left border-l-4 ${colors.border.replace('border-', 'border-l-')} hover:shadow-lg transition-all`}
                 >
                   <div className="flex items-center justify-between mb-2">

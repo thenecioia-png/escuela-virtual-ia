@@ -1,6 +1,8 @@
 // Lecciones organizadas por materia, nivel y estilo de aprendizaje preferido
 // Cada lección tiene variantes: visual, auditivo, kinestesico, lector
 
+import { EXTRA_LESSONS } from './lessons-extra';
+
 export const LESSONS = {
   math: {
     sumas_restas: [
@@ -196,7 +198,7 @@ export const LESSONS = {
         kinestesico: {
           instruction: 'Imagina que actúas el problema.',
           items: [
-            { q: 'Tienes 10 pasos para llegar a la puerta. Das 3 y retrocedes 1. ¿Cuántos pasos te faltan?', options: ['5', '6', '7', '8'], answer: '6', explanation: '10 - (3 - 1) = 8... espera: ya diste 3 y volviste 1, avanzaste 2, faltan 8. Pero la respuesta correcta es: avanzas 3 (quedan 7), retrocedes 1 (quedan 8). Corrijo: 10 - 3 + 1 = 8. Respuesta: 8.', options: ['6', '7', '8', '9'], answer: '8', explanation: '10 - 3 + 1 = 8 pasos' },
+            { q: 'Tienes 10 pasos para llegar a la puerta. Das 3 y retrocedes 1. ¿Cuántos pasos te faltan?', options: ['6', '7', '8', '9'], answer: '8', explanation: 'Das 3 y retrocedes 1: avanzas 2. Te faltan 8 pasos.' },
             { q: 'Salta 4 veces, giras y saltas 3 más. ¿Cuántos saltos en total?', options: ['6', '7', '8', '9'], answer: '7', explanation: '4 + 3 = 7 saltos' },
           ],
         },
@@ -494,6 +496,14 @@ export const LESSONS = {
     ],
   },
 };
+
+// Fusionar las lecciones adicionales que cubren niveles antes vacíos, para que
+// TODOS los niveles de todas las materias tengan contenido y la niña siempre
+// tenga algo nuevo que estudiar.
+for (const [subj, levels] of Object.entries(EXTRA_LESSONS)) {
+  if (!LESSONS[subj]) LESSONS[subj] = {};
+  Object.assign(LESSONS[subj], levels);
+}
 
 export function getLesson(subjectId, levelId, index = 0) {
   const subject = LESSONS[subjectId];

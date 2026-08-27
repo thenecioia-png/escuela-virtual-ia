@@ -143,21 +143,35 @@ export function useAdaptiveEngine(profile, progress) {
     // Build available lessons for each subject
     SUBJECTS.forEach((subject) => {
       const subjProg = progress.subjectProgress[subject.id] || {};
-      subject.levels.forEach((levelId) => {
+      subject.levels.forEach((levelId, levelIdx) => {
         const lessonCount = getLessonCount(subject.id, levelId);
+        if (lessonCount === 0) return; // sin lecciones aún para este nivel
+
+        // Progresión secuencial por nivel: el nivel 0 siempre está desbloqueado;
+        // los siguientes se desbloquean cuando el anterior tiene al menos 1
+        // sesión aprobada. Así la niña avanza nivel a nivel, como en una escuela
+        // real, y siempre encuentra contenido nuevo al subir de nivel.
+        if (levelIdx > 0) {
+          const prevLevelId = subject.levels[levelIdx - 1];
+          const prevCompleted = subjProg[prevLevelId] || 0;
+          if (prevCompleted < 1) return; // nivel aún bloqueado
+        }
+
         const completed = subjProg[levelId] || 0;
-        if (completed < lessonCount) {
-          const lesson = getLesson(subject.id, levelId, completed);
-          if (lesson) {
-            state.availableLessons.push({
-              ...lesson,
-              subjectId: subject.id,
-              subjectName: subject.name,
-              subjectColor: subject.color,
-              levelId,
-              difficulty: completed,
-            });
-          }
+        // Ciclar lecciones: al terminar todas las de un nivel, se vuelve a
+        // practicar desde la primera para que nunca se quede sin qué estudiar.
+        const lessonIndex = completed % lessonCount;
+        const lesson = getLesson(subject.id, levelId, lessonIndex);
+        if (lesson) {
+          state.availableLessons.push({
+            ...lesson,
+            subjectId: subject.id,
+            subjectName: subject.name,
+            subjectColor: subject.color,
+            levelId,
+            lessonIndex,
+            difficulty: completed,
+          });
         }
       });
     });
