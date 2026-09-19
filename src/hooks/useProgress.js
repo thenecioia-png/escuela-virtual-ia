@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { getStorage, setStorage, removeStorage } from '../utils/storage';
 import { supabase, isCloudConfigured } from '../lib/supabase';
 import { upsertGrades } from '../lib/grades';
@@ -69,6 +69,14 @@ export function useProgress(studentId, profile = {}) {
   const useCloud = isCloudConfigured && studentId && !String(studentId).startsWith('local-');
 
   const [progress, setProgress] = useState(() => getStorage(storageKey, DEFAULT_PROGRESS));
+
+  // Ref que siempre refleja el progreso más reciente (local + nube fusionados).
+  // Se usa al aplicar la nube para NO depender del updater funcional de React
+  // (que no debe tener efectos secundarios como escribir en localStorage).
+  const progressRef = useRef(progress);
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
 
   // ---- Cargar el progreso correcto al cambiar de estudiante + migración
   // de la antigua clave global 'progress' a la clave por estudiante.
@@ -277,6 +285,22 @@ export function useProgress(studentId, profile = {}) {
     return progress.subjectProgress[subjectId]?.[levelId] || 0;
   }, [progress]);
 
+  // Aplica el progreso que llega de la nube fusionándolo con el local.
+  // CRÍTICO: además de actualizar lo visible, lo persiste en localStorage.
+  // Antes NO se guardaba, así que en un dispositivo con localStorage vacío
+  // (teléfono nuevo, link/QR compartido) la siguiente sesión leía de cero y
+  // sobrescribía la nube con un historial casi vacío → borraba todo el avance.
+  const applyCloudProgress = useCallback(
+    (cloud) => {
+      if (!cloud || typeof cloud !== 'object') return;
+      const merged = mergeProgress(progressRef.current, cloud);
+      progressRef.current = merged;
+      setStorage(storageKey, merged);
+      setProgress(merged);
+    },
+    [storageKey]
+  );
+
   // ---- Sincronización del progreso en la nube (carga + tiempo real)
   // Carga students.progress al montar (o al cambiar de estudiante) y se
   // suscribe a cambios en vivo, de modo que el panel del padre refleje el
@@ -293,7 +317,7 @@ export function useProgress(studentId, profile = {}) {
       .single()
       .then(({ data, error }) => {
         if (cancelled || error || !data) return;
-        setProgress((current) => mergeProgress(current, data.progress));
+        applyCloudProgress(data.progress);
       });
 
     const channel = supabase
@@ -304,7 +328,7 @@ export function useProgress(studentId, profile = {}) {
         (payload) => {
           const cloud = payload.new && payload.new.progress;
           if (!cloud) return;
-          setProgress((current) => mergeProgress(current, cloud));
+          applyCloudProgress(cloud);
         }
       )
       .subscribe();
@@ -313,7 +337,7 @@ export function useProgress(studentId, profile = {}) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [useCloud, studentId]);
+  }, [useCloud, studentId, applyCloudProgress]);
 
   return {
     progress,

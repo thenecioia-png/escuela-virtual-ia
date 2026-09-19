@@ -14,6 +14,8 @@ import NeedsAssessment from './components/Onboarding/NeedsAssessment';
 import Dashboard from './components/Student/Dashboard';
 import LessonPlayer from './components/Student/LessonPlayer';
 import ExamPlayer from './components/Student/ExamPlayer';
+import DiagnosticPlayer from './components/Student/DiagnosticPlayer';
+import { generatePracticeLesson } from './lib/skillMap';
 import ParentDashboard from './components/Parent/ParentDashboard';
 import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
 import AccessibilitySettings from './components/Student/AccessibilitySettings';
@@ -180,6 +182,27 @@ export default function App() {
     setExamQuestions(questions);
     setView('exam');
   }, [profile, progress]);
+
+  // Diagnóstico adaptativo: ubicar el nivel real en restas y multiplicación
+  const startDiagnostic = useCallback(() => {
+    setView('diagnostic');
+  }, []);
+
+  const finishDiagnostic = useCallback((percentage, timeMinutes) => {
+    // Cuenta como sesión (sin subir de nivel: es evaluación, tipo examen)
+    const emotion = profile.emotionalHistory?.slice(-1)[0]?.mood || null;
+    recordSession('math', 'diagnostico', percentage, timeMinutes, { isExam: true, emotion });
+    setView('dashboard');
+    setCurrentNav('dashboard');
+  }, [recordSession, profile.emotionalHistory]);
+
+  // Práctica dirigida de una habilidad débil (ejercicios generados al azar)
+  const startSkillPractice = useCallback((skillId) => {
+    const lesson = generatePracticeLesson(skillId, 8);
+    if (!lesson) return;
+    setLessonParams({ customLesson: lesson, subjectId: 'math', levelId: skillId });
+    setView('lesson');
+  }, []);
 
   const finishExam = useCallback((percentage, timeMinutes, answers) => {
     if (examQuestions && examQuestions.length > 0) {
@@ -368,6 +391,8 @@ export default function App() {
               onStartLesson={startLesson}
               onStartAiLesson={startAiLesson}
               onStartExam={startExam}
+              onStartDiagnostic={startDiagnostic}
+              onStartSkillPractice={startSkillPractice}
               onViewProgress={goToProgress}
               onOpenAccessibility={() => setShowAccessibility(true)}
               parentMessages={parentMessages}
@@ -408,7 +433,24 @@ export default function App() {
           >
             <ExamPlayer
               questions={examQuestions}
+              studentId={activeId}
               onFinish={finishExam}
+              onHome={goHome}
+            />
+          </motion.div>
+        )}
+
+        {view === 'diagnostic' && (
+          <motion.div
+            key="diagnostic"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            <DiagnosticPlayer
+              studentId={activeId}
+              onFinish={finishDiagnostic}
               onHome={goHome}
             />
           </motion.div>

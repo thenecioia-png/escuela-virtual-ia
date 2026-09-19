@@ -5,6 +5,7 @@ import { getLesson } from '../../data/lessons';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { isTutorConfigured, getHint } from '../../lib/tutorApi';
 import { getCountry, getGrade } from '../../lib/curricula';
+import { recordAttempt, inferSkillFromQuestion, getSkillSummaryForTutor } from '../../lib/skillMap';
 import ProgressRing from './ProgressRing';
 
 export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLesson, learningStyle, profile, adaptiveEngine, onFinish, onHome }) {
@@ -22,9 +23,10 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
   const [showBreak, setShowBreak] = useState(false);
   const [breakData, setBreakData] = useState(null);
   const [sessionStartTime] = useState(Date.now());
-  const [hint, setHint] = useState(null);       // pista de la IA (o null)
+  const [hint, setHint] = useState(null);       // pista de la IA (o pista local)
   const [loadingHint, setLoadingHint] = useState(false);
   const timerRef = useRef(null);
+  const questionTime = useRef(Date.now()); // para medir tiempo por pregunta (mapa de habilidades)
 
   const { getLessonForStudent, getBreakRecommendation, getEncouragementMessage, adaptations = [] } = adaptiveEngine;
 
@@ -76,6 +78,20 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
     const correct = option === item.answer;
     setIsCorrect(correct);
     setShowResult(true);
+
+    // Registrar el intento en el mapa de habilidades: la práctica dirigida
+    // trae skillId en la lección; en lecciones de mates se infiere de la pregunta.
+    const skillId = lesson.skillId || (subjectId === 'math' ? inferSkillFromQuestion(item.q) : null);
+    if (skillId) {
+      recordAttempt(profile.id, skillId, {
+        correct,
+        q: item.q,
+        wrong: option,
+        answer: item.answer,
+        ms: Date.now() - questionTime.current,
+      });
+    }
+
     if (correct) {
       setScore((s) => s + 1);
       setEncouragement(getEncouragementMessage('correct'));
@@ -87,9 +103,19 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
     setTimeout(() => setExplanationVisible(true), 400);
   };
 
-  // Pista de la IA al fallar: nunca bloquea la lección (fire-and-forget)
+  // Pista al fallar: si hay IA configurada pide una pista con el contexto del
+  // mapa de habilidades; si no, muestra una pista local útil (sin backend).
   const pedirPista = (item, wrongAnswer) => {
-    if (!isTutorConfigured) return;
+    const skillId = lesson.skillId || (subjectId === 'math' ? inferSkillFromQuestion(item.q) : null);
+    if (!isTutorConfigured) {
+      setHint(
+        item.explanation
+          ? `Mira, aquí está el truco: ${item.explanation}`
+          : `Piensa despacito y vuelve a intentarlo. La respuesta correcta es ${item.answer}.`
+      );
+      setLoadingHint(false);
+      return;
+    }
     setHint(null);
     setLoadingHint(true);
     const subjectName = SUBJECTS.find((s) => s.id === subjectId)?.name || lesson.subjectName || subjectId;
@@ -102,9 +128,12 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
       question: item.q,
       wrongAnswer,
       correctAnswer: item.answer,
+      skillId,
+      skillSummary: getSkillSummaryForTutor(profile.id),
     }).then((pista) => {
       setLoadingHint(false);
       if (pista) setHint(pista);
+      else if (item.explanation) setHint(`Mira, aquí está el truco: ${item.explanation}`);
     });
   };
 
@@ -121,6 +150,7 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
     } else {
       setLessonComplete(true);
     }
+    questionTime.current = Date.now();
   };
 
   const handleFinish = useCallback(() => {
@@ -146,6 +176,7 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
     setShowBreak(false);
     setHint(null);
     setLoadingHint(false);
+    questionTime.current = Date.now();
   };
 
   if (!lesson) {

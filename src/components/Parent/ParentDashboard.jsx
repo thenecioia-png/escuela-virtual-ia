@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { BarChart3, Clock, Star, TrendingUp, AlertCircle, Lightbulb, Calendar, BookOpen, Brain, Heart, Accessibility, Shield, Zap, Send, Sparkles, MessageCircleHeart, GraduationCap, Radio, RefreshCw, FileText, QrCode, Copy, Check } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
@@ -7,6 +7,7 @@ import { getCountry, getGrade } from '../../lib/curricula';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
 import { computeGrades, fetchGrades, currentPeriod } from '../../lib/grades';
 import { buildShareLink } from '../../lib/familyShare';
+import { getParentSkillSummary } from '../../lib/skillMap';
 
 export default function ParentDashboard({ profile, progress, adaptiveEngine, onOpenAccessibility, onSendMessage, studentId, familyId }) {
   const getSubjectProgress = (subjectId) => {
@@ -117,6 +118,9 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
   const recentSessions = (progress.sessionHistory || []).slice(-7).reverse();
   const examCount = (progress.sessionHistory || []).filter((s) => s.isExam).length;
   const recentEmotions = (profile.emotionalHistory || []).slice(-5).reverse();
+
+  // Mapa de dominio por habilidad (matemáticas): se recalcula con cada sesión
+  const skillSummary = useMemo(() => getParentSkillSummary(studentId), [studentId, progress]);
 
   // ---- Fase 2/4: nube (boleta, actividad de hoy en vivo, insights de IA) ----
   const useCloud = isCloudConfigured && studentId && !String(studentId).startsWith('local-');
@@ -417,6 +421,75 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
           </div>
         )}
       </motion.div>
+
+      {/* Mapa de dominio por habilidad (matemáticas) */}
+      {skillSummary.hasData && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-6 sm:p-8 border-l-4 border-sky-400"
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={20} className="text-sky-500" />
+            <h3 className="text-lg font-black text-forest-900">Habilidades de matemáticas</h3>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            {skillSummary.mastered.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-emerald-600 uppercase tracking-wider mb-2">Dominadas</p>
+                <div className="flex flex-wrap gap-2">
+                  {skillSummary.mastered.map((s) => (
+                    <span key={s.id} className="text-xs font-bold bg-emerald-50 text-emerald-700 rounded-full px-3 py-1.5 border border-emerald-200">
+                      {s.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {skillSummary.weak.length > 0 && (
+              <div>
+                <p className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-2">Necesita ayuda</p>
+                <div className="flex flex-wrap gap-2">
+                  {skillSummary.weak.map((s) => (
+                    <span key={s.id} className="text-xs font-bold bg-amber-50 text-amber-700 rounded-full px-3 py-1.5 border border-amber-200">
+                      {s.name} · {skillSummary.rows.find((r) => r.id === s.id)?.accuracy}%
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2 mb-4">
+            {skillSummary.rows.map((r) => (
+              <div key={r.id} className="flex items-center justify-between bg-white/60 rounded-xl px-4 py-2.5">
+                <span className="text-sm font-bold text-forest-800">
+                  {r.emoji} {r.name}
+                </span>
+                <span
+                  className={`text-xs font-black px-2.5 py-1 rounded-lg ${
+                    r.status === 'dominada'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : r.status === 'necesita_ayuda'
+                        ? 'bg-rose-100 text-rose-700'
+                        : r.status === 'en_progreso'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-forest-50 text-forest-400'
+                  }`}
+                >
+                  {r.accuracy !== null
+                    ? `${r.accuracy}% · ${r.stat.attempts} intentos`
+                    : 'Sin practicar'}
+                </span>
+              </div>
+            ))}
+          </div>
+          {skillSummary.recommendation && (
+            <p className="text-sm font-semibold text-forest-700 bg-sky-50 rounded-2xl p-4 border border-sky-200">
+              Recomendación: {skillSummary.recommendation}
+            </p>
+          )}
+        </motion.div>
+      )}
 
       {/* Fortalezas y debilidades detectadas por la IA */}
       {insight && (

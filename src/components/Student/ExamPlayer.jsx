@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, ArrowRight, Star, Trophy, Home, ClipboardList } from 'lucide-react';
+import { recordAttempt, inferSkillFromQuestion } from '../../lib/skillMap';
 
 // Reproductor de examen de repaso. Una pregunta por vez, sin pistas (modo examen),
 // feedback inmediato y pantalla final con estrellas + botón Guardar.
-export default function ExamPlayer({ questions, onFinish, onHome }) {
+export default function ExamPlayer({ questions, studentId, onFinish, onHome }) {
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState(null);
   const [showResult, setShowResult] = useState(false);
@@ -13,6 +14,7 @@ export default function ExamPlayer({ questions, onFinish, onHome }) {
   const [answers, setAnswers] = useState([]);
   const [complete, setComplete] = useState(false);
   const startTime = useRef(Date.now());
+  const questionTime = useRef(Date.now());
 
   if (!questions || questions.length === 0) {
     return (
@@ -38,9 +40,15 @@ export default function ExamPlayer({ questions, onFinish, onHome }) {
     setShowResult(true);
     if (correct) setScore((s) => s + 1);
     setAnswers((a) => [...a, { q: q.q, selected: opt, correct }]);
+    // También cuenta para el mapa de habilidades (solo matemáticas con pregunta parseable)
+    const skillId = q.subjectId === 'math' ? inferSkillFromQuestion(q.q) : null;
+    if (skillId) {
+      recordAttempt(studentId, skillId, { correct, q: q.q, wrong: opt, answer: q.answer, ms: Date.now() - questionTime.current });
+    }
   };
 
   const handleNext = () => {
+    questionTime.current = Date.now();
     if (current < questions.length - 1) {
       setCurrent((i) => i + 1);
       setSelected(null);

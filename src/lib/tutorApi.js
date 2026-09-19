@@ -29,9 +29,11 @@ export async function tutorRequest(action, payload = {}) {
   }
 }
 
-// Genera una pista pedagógica corta para una respuesta fallida (o null)
-export async function getHint({ country, grade, age, subject, topic, question, wrongAnswer, correctAnswer }) {
-  const data = await tutorRequest('hint', { country, grade, age, subject, topic, question, wrongAnswer, correctAnswer });
+// Genera una pista pedagógica corta para una respuesta fallida (o null).
+// skillSummary: resumen del mapa de habilidades (fortalezas, debilidades,
+// errores recientes) para que el tutor guíe según lo que la niña necesita.
+export async function getHint({ country, grade, age, subject, topic, question, wrongAnswer, correctAnswer, skillId, skillSummary }) {
+  const data = await tutorRequest('hint', { country, grade, age, subject, topic, question, wrongAnswer, correctAnswer, skillId, skillSummary });
   return data?.pista || null;
 }
 

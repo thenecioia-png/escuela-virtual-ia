@@ -1,19 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile, MessageCircleHeart, Lightbulb, StickyNote, Sparkles, ClipboardList } from 'lucide-react';
+import { Star, Flame, Clock, TrendingUp, BookOpen, Zap, Target, Brain, Accessibility, Volume2, VolumeX, Smile, MessageCircleHeart, Lightbulb, StickyNote, Sparkles, ClipboardList, Compass, CheckCircle2, Lock, Play } from 'lucide-react';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { getCountry, getGrade } from '../../lib/curricula';
 import { isTutorConfigured, generateLesson, adaptAiLesson } from '../../lib/tutorApi';
+import { getSkillPathState, MATH_SKILLS, accuracy } from '../../lib/skillMap';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
 import { getStorage, setStorage, removeStorage } from '../../utils/storage';
 import ProgressRing from './ProgressRing';
 
-export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onStartExam, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
+export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onStartExam, onStartDiagnostic, onStartSkillPractice, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
   const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars, adaptations = [], emotionalState = 'neutral' } = adaptiveEngine;
   const [showModelInfo, setShowModelInfo] = useState(false);
   const [topicSel, setTopicSel] = useState({});        // tema elegido por materia del currículo
   const [generando, setGenerando] = useState(null);   // id de materia generando
   const [errorIA, setErrorIA] = useState(null);
+
+  // Mapa de dominio por habilidad (se recalcula cuando cambia el progreso,
+  // porque cada sesión de práctica también actualiza el mapa en localStorage).
+  const skillPath = useMemo(() => getSkillPathState(profile.id), [profile.id, progress]);
 
   // Minutos estudiados hoy (del historial local de sesiones)
   const todayStr = new Date().toDateString();
@@ -221,6 +226,117 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           <span className="text-xs font-bold text-forest-500 mt-2">Tu avance</span>
         </div>
       </motion.div>
+
+      {/* Diagnóstico adaptativo: se ofrece automáticamente si aún no hay datos */}
+      {!skillPath.hasData && onStartDiagnostic && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-5 sm:p-6 border-l-4 border-sky-400 flex flex-col sm:flex-row items-center gap-4"
+        >
+          <div className="text-4xl">🧭</div>
+          <div className="flex-1 text-center sm:text-left">
+            <h3 className="text-lg font-black text-forest-900">Descubre tu camino</h3>
+            <p className="text-sm text-forest-600">
+              Un juego cortito de 12 preguntas para conocerte mejor y prepararte un camino hecho a tu medida. No es un examen: ¡equivocarse también ayuda!
+            </p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={onStartDiagnostic}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold bg-sky-500 text-white hover:bg-sky-600 transition-all shadow-lg shadow-sky-500/25 shrink-0"
+          >
+            <Compass size={18} />
+            Empezar
+          </motion.button>
+        </motion.div>
+      )}
+
+      {/* Tu camino: habilidades dominadas, la actual y las siguientes bloqueadas */}
+      {skillPath.hasData && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-5 sm:p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Compass size={18} className="text-sky-500" />
+              <h3 className="text-lg font-black text-forest-900">Tu camino de matemáticas</h3>
+            </div>
+            {onStartDiagnostic && (
+              <button
+                onClick={onStartDiagnostic}
+                className="text-xs font-bold text-sky-500 hover:text-sky-700 transition-colors"
+              >
+                Repetir diagnóstico
+              </button>
+            )}
+          </div>
+          <div className="space-y-2">
+            {MATH_SKILLS.map((skill) => {
+              const status = skillPath.statuses[skill.id];
+              const acc = accuracy(skillPath.map[skill.id]);
+              const isCurrent = skillPath.current?.id === skill.id;
+              const isLocked = skillPath.locked.some((s) => s.id === skill.id);
+              return (
+                <div
+                  key={skill.id}
+                  className={`flex items-center gap-3 rounded-2xl px-4 py-3 ${
+                    isCurrent
+                      ? 'bg-sky-50 border-2 border-sky-300'
+                      : status === 'dominada'
+                        ? 'bg-emerald-50/60'
+                        : isLocked
+                          ? 'bg-white/40 opacity-60'
+                          : 'bg-white/60'
+                  }`}
+                >
+                  {status === 'dominada' ? (
+                    <CheckCircle2 size={20} className="text-emerald-500 shrink-0" />
+                  ) : isLocked ? (
+                    <Lock size={18} className="text-forest-300 shrink-0" />
+                  ) : (
+                    <span className="text-lg shrink-0">{skill.emoji}</span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-forest-800 truncate">{skill.name}</p>
+                    {acc !== null && (
+                      <p className="text-xs text-forest-400 font-semibold">{acc}% de aciertos</p>
+                    )}
+                    {isCurrent && (
+                      <p className="text-xs font-bold text-sky-600">Estás aquí · vamos a practicar esto</p>
+                    )}
+                  </div>
+                  {isCurrent && onStartSkillPractice && (
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => onStartSkillPractice(skill.id)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-500 text-white hover:bg-sky-600 transition-all shadow-md shadow-sky-500/20 shrink-0"
+                    >
+                      <Play size={12} />
+                      Practicar
+                    </motion.button>
+                  )}
+                  {status === 'dominada' && (
+                    <span className="text-xs font-black text-emerald-600 shrink-0">¡Dominada!</span>
+                  )}
+                  {status === 'necesita_ayuda' && !isCurrent && onStartSkillPractice && (
+                    <button
+                      onClick={() => onStartSkillPractice(skill.id)}
+                      className="text-xs font-bold text-amber-600 hover:text-amber-700 shrink-0"
+                    >
+                      Repasar
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      )}
 
       {/* Examen de repaso (aparece cada 5 sesiones) */}
       {examDue && (
