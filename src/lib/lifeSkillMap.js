@@ -728,3 +728,54 @@ export function getFullParentSkillSummary(studentId) {
 // Re-exportamos recordAttempt para que los componentes nuevos lo importen de un
 // solo lugar si lo prefieren (mismo motor de localStorage para todas las áreas).
 export { recordAttempt };
+
+// ---- "Modo Profesor": elegir la habilidad que más necesita la niña ----
+// Prioridad 1: la habilidad "necesita_ayuda" con MENOR porcentaje de aciertos.
+// Prioridad 2: la habilidad actual (siguiente paso) del área menos avanzada.
+// Devuelve { area, skill, reason } o null si no hay datos en ninguna área.
+export function getNextTeacherSkill(studentId) {
+  let peorDebil = null;
+  for (const area of ALL_AREAS) {
+    const state = getAreaPathState(studentId, area);
+    for (const s of state.weak) {
+      const acc = accuracy(state.map[s.id]) ?? 0;
+      if (!peorDebil || acc < peorDebil.acc) peorDebil = { area, skill: s, acc };
+    }
+  }
+  if (peorDebil) {
+    return {
+      area: peorDebil.area,
+      skill: peorDebil.skill,
+      reason: `porque es donde más necesita refuerzo (${peorDebil.acc}% de aciertos)`,
+      isWeak: true,
+    };
+  }
+  for (const area of ALL_AREAS) {
+    const state = getAreaPathState(studentId, area);
+    if (state.current) {
+      return {
+        area,
+        skill: state.current,
+        reason: `porque es su siguiente paso en el camino de ${area.name.toLowerCase()}`,
+        isWeak: false,
+      };
+    }
+  }
+  return null;
+}
+
+// La siguiente habilidad del camino del área (para el botón "siguiente clase").
+export function getNextSkillInPath(studentId, skillId) {
+  const area = getAreaBySkill(skillId);
+  if (!area) return null;
+  const idx = area.skills.findIndex((s) => s.id === skillId);
+  if (idx < 0) return null;
+  const state = getAreaPathState(studentId, area);
+  // La primera habilidad después de la actual que esté desbloqueada y no dominada
+  for (let i = idx + 1; i < area.skills.length; i++) {
+    const s = area.skills[i];
+    const desbloqueada = s.prereq.every((p) => state.statuses[p] === 'dominada' || p === skillId);
+    if (desbloqueada && state.statuses[s.id] !== 'dominada') return { area, skill: s };
+  }
+  return null;
+}

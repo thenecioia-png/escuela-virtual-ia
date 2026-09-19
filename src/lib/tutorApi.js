@@ -29,6 +29,12 @@ export async function tutorRequest(action, payload = {}) {
   }
 }
 
+// Paso de la clase del "Modo Profesor" (o null).
+// step: 'aprende' → { titulo, texto } | 'ejemplo' → { pasos: [] } | 'cierre' → { texto }
+export async function lessonStep(payload) {
+  return tutorRequest('lesson_step', payload);
+}
+
 // Genera una pista pedagógica corta para una respuesta fallida (o null).
 // skillSummary: resumen del mapa de habilidades (fortalezas, debilidades,
 // errores recientes) para que el tutor guíe según lo que la niña necesita.

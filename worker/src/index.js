@@ -49,6 +49,35 @@ El niño respondió: "${payload.wrongAnswer}" (incorrecto). La respuesta correct
 Escribe UNA pista pedagógica corta (máximo 30 palabras) que lo ayude a descubrir la respuesta SIN decírsela directamente, apropiada para su edad. Tono de ánimo, nunca de regaño.
 Responde SOLO JSON: {"pista": string}`;
 
+    case 'lesson_step': {
+      const { step, skillName, areaName, skillSummary, question, answer, explanation, aciertos, total } = payload;
+      const contexto = `Niña de ${age || 10} años en la República Dominicana${grade ? ` (${grade})` : ''}.
+Área: ${areaName || 'general'}. Habilidad de la clase de hoy: "${skillName}".
+Lo que sabemos de ella (su historial de práctica): ${skillSummary || 'sin datos todavía'}.`;
+      const estilo = `Eres su maestra dominicana, paciente y cariñosa. Español de la República Dominicana, frases CORTAS y claras, tono cálido. Usa ejemplos de la vida real dominicana (el colmado, los pesos RD$, la guagua, el mangú, el conuco). NUNCA des la respuesta de un ejercicio sin enseñar el porqué antes.`;
+      if (step === 'aprende') {
+        return `${contexto}
+${estilo}
+Paso 1 de la clase "Aprende": explica el concepto de "${skillName}" desde cero, con UN ejemplo de la vida real dominicana. Termina con una frase de ánimo.
+Responde SOLO JSON ESTRICTO: {"titulo": string (corto, con gancho), "texto": string (4-6 frases cortas)}`;
+      }
+      if (step === 'ejemplo') {
+        return `${contexto}
+${estilo}
+Paso 2 "Míralo resuelto". Ejercicio: "${question}". Respuesta correcta: "${answer}". Idea: ${explanation || ''}.
+Resuélvelo paso a paso como en la pizarra, despacio, en 3 a 5 pasos numerados cortos. NO omitas el razonamiento.
+Responde SOLO JSON ESTRICTO: {"pasos": [string, ...]}`;
+      }
+      if (step === 'cierre') {
+        return `${contexto}
+${estilo}
+Paso 4 "Cierre": practicó "${skillName}" y acertó ${aciertos ?? 0} de ${total ?? 0} ejercicios.
+Escribe un resumen cariñoso: qué logró hoy, qué tan bien le fue (sé honesta pero siempre animando) y qué sigue después. Máximo 4 frases cortas.
+Responde SOLO JSON ESTRICTO: {"texto": string}`;
+      }
+      return null;
+    }
+
     default:
       return null;
   }
@@ -190,7 +219,7 @@ export default {
     const { action, payload } = body || {};
     const prompt = buildPrompt(action, payload);
     if (!prompt) {
-      return jsonResponse({ error: `Acción desconocida: ${action}. Usa generate_lesson | analyze | recommend | hint` }, 400, env);
+      return jsonResponse({ error: `Acción desconocida: ${action}. Usa generate_lesson | analyze | recommend | hint | lesson_step` }, 400, env);
     }
 
     // Router con fallback: primer proveedor configurado que responda bien gana

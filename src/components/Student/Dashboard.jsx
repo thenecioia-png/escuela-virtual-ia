@@ -5,12 +5,12 @@ import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { getCountry, getGrade } from '../../lib/curricula';
 import { isTutorConfigured, generateLesson, adaptAiLesson } from '../../lib/tutorApi';
 import { accuracy } from '../../lib/skillMap';
-import { ALL_AREAS, getAreaPathState } from '../../lib/lifeSkillMap';
+import { ALL_AREAS, getAreaPathState, getNextTeacherSkill } from '../../lib/lifeSkillMap';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
 import { getStorage, setStorage, removeStorage } from '../../utils/storage';
 import ProgressRing from './ProgressRing';
 
-export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onStartExam, onStartDiagnostic, onStartSkillPractice, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
+export default function Dashboard({ profile, progress, adaptiveEngine, onStartLesson, onStartAiLesson, onStartExam, onStartDiagnostic, onStartSkillPractice, onStartTeacherClass, onViewProgress, onOpenAccessibility, parentMessages = [], onReadMessage }) {
   const { recommendedPath, weakAreas, strongAreas, totalStars = progress.totalStars, adaptations = [], emotionalState = 'neutral' } = adaptiveEngine;
   const [showModelInfo, setShowModelInfo] = useState(false);
   const [topicSel, setTopicSel] = useState({});        // tema elegido por materia del currículo
@@ -25,6 +25,9 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
     [profile.id, progress]
   );
   const anyHasData = areaPaths.some((a) => a.state.hasData);
+
+  // Clase de hoy con la maestra IA: la habilidad que más necesita (de todos los mapas)
+  const teacherTarget = useMemo(() => getNextTeacherSkill(profile.id), [profile.id, progress]);
 
   // Minutos estudiados hoy (del historial local de sesiones)
   const todayStr = new Date().toDateString();
@@ -232,6 +235,34 @@ export default function Dashboard({ profile, progress, adaptiveEngine, onStartLe
           <span className="text-xs font-bold text-forest-500 mt-2">Tu avance</span>
         </div>
       </motion.div>
+
+      {/* Clase con tu maestra: la IA enseña paso a paso lo que más necesitas */}
+      {onStartTeacherClass && (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card rounded-3xl p-5 sm:p-6 border-l-4 border-berry-400 flex flex-col sm:flex-row items-center gap-4"
+        >
+          <div className="text-4xl">👩‍🏫</div>
+          <div className="flex-1 text-center sm:text-left">
+            <h3 className="text-lg font-black text-forest-900">Clase con tu maestra</h3>
+            <p className="text-sm text-forest-600">
+              {teacherTarget
+                ? `Hoy: ${teacherTarget.skill.name.toLowerCase()} ${teacherTarget.isWeak ? '— la repasamos porque es donde más te cuesta un poquito' : '— tu siguiente paso'}. Tu maestra te lo explica paso a paso.`
+                : 'Tu maestra te dará una clase hecha a tu medida. Primero haz el diagnóstico para conocerte.'}
+            </p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={onStartTeacherClass}
+            className="flex items-center gap-2 px-5 py-3 rounded-2xl font-bold bg-berry-500 text-white hover:opacity-90 transition-all shadow-lg shadow-berry-500/25 shrink-0"
+          >
+            <Sparkles size={18} />
+            Empezar clase
+          </motion.button>
+        </motion.div>
+      )}
 
       {/* Diagnóstico adaptativo: se ofrece automáticamente si aún no hay datos */}
       {!anyHasData && onStartDiagnostic && (

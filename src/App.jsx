@@ -15,6 +15,7 @@ import Dashboard from './components/Student/Dashboard';
 import LessonPlayer from './components/Student/LessonPlayer';
 import ExamPlayer from './components/Student/ExamPlayer';
 import DiagnosticPlayer from './components/Student/DiagnosticPlayer';
+import TeacherMode from './components/Student/TeacherMode';
 import { generateAnyPracticeLesson } from './lib/lifeSkillMap';
 import ParentDashboard from './components/Parent/ParentDashboard';
 import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
@@ -186,6 +187,11 @@ export default function App() {
   // Diagnóstico adaptativo: ubicar el nivel real en restas y multiplicación
   const startDiagnostic = useCallback(() => {
     setView('diagnostic');
+  }, []);
+
+  // Modo Profesor: clase guiada por la IA sobre la habilidad que más necesita
+  const startTeacherClass = useCallback(() => {
+    setView('teacher');
   }, []);
 
   const finishDiagnostic = useCallback((percentage, timeMinutes) => {
@@ -394,6 +400,7 @@ export default function App() {
               onStartExam={startExam}
               onStartDiagnostic={startDiagnostic}
               onStartSkillPractice={startSkillPractice}
+              onStartTeacherClass={startTeacherClass}
               onViewProgress={goToProgress}
               onOpenAccessibility={() => setShowAccessibility(true)}
               parentMessages={parentMessages}
@@ -453,6 +460,23 @@ export default function App() {
               studentId={activeId}
               onFinish={finishDiagnostic}
               onHome={goHome}
+            />
+          </motion.div>
+        )}
+
+        {view === 'teacher' && (
+          <motion.div
+            key="teacher"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.3 }}
+          >
+            <TeacherMode
+              profile={profile}
+              studentId={activeId}
+              onHome={goHome}
+              onStartDiagnostic={startDiagnostic}
             />
           </motion.div>
         )}

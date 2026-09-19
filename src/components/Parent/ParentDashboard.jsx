@@ -7,7 +7,7 @@ import { getCountry, getGrade } from '../../lib/curricula';
 import { supabase, isCloudConfigured } from '../../lib/supabase';
 import { computeGrades, fetchGrades, currentPeriod } from '../../lib/grades';
 import { buildShareLink } from '../../lib/familyShare';
-import { getFullParentSkillSummary } from '../../lib/lifeSkillMap';
+import { getFullParentSkillSummary, getNextTeacherSkill } from '../../lib/lifeSkillMap';
 
 export default function ParentDashboard({ profile, progress, adaptiveEngine, onOpenAccessibility, onSendMessage, studentId, familyId }) {
   const getSubjectProgress = (subjectId) => {
@@ -121,6 +121,8 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
 
   // Mapa de dominio por habilidad (todas las áreas): se recalcula con cada sesión
   const skillSummary = useMemo(() => getFullParentSkillSummary(studentId), [studentId, progress]);
+  // Clase de hoy recomendada con la maestra IA (qué habilidad y por qué)
+  const claseHoy = useMemo(() => getNextTeacherSkill(studentId), [studentId, progress]);
 
   // ---- Fase 2/4: nube (boleta, actividad de hoy en vivo, insights de IA) ----
   const useCloud = isCloudConfigured && studentId && !String(studentId).startsWith('local-');
@@ -357,6 +359,14 @@ export default function ParentDashboard({ profile, progress, adaptiveEngine, onO
           <div className="mt-4 bg-berry-50 rounded-2xl p-4 border border-berry-200">
             <p className="text-xs font-bold text-berry-500 uppercase tracking-wider mb-1">Resumen de la semana</p>
             <p className="text-sm text-forest-700 font-medium">{resumen}</p>
+          </div>
+        )}
+        {claseHoy && (
+          <div className="mt-4 bg-berry-50 rounded-2xl p-4 border border-berry-200">
+            <p className="text-xs font-bold text-berry-500 uppercase tracking-wider mb-1">👩‍🏫 Clase de hoy con la maestra</p>
+            <p className="text-sm text-forest-700 font-medium">
+              {claseHoy.area.name} · <span className="font-black">{claseHoy.skill.name}</span> — {claseHoy.reason}.
+            </p>
           </div>
         )}
       </motion.div>
