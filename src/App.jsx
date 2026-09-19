@@ -15,7 +15,7 @@ import Dashboard from './components/Student/Dashboard';
 import LessonPlayer from './components/Student/LessonPlayer';
 import ExamPlayer from './components/Student/ExamPlayer';
 import DiagnosticPlayer from './components/Student/DiagnosticPlayer';
-import { generatePracticeLesson } from './lib/skillMap';
+import { generateAnyPracticeLesson } from './lib/lifeSkillMap';
 import ParentDashboard from './components/Parent/ParentDashboard';
 import EmotionalCheckIn from './components/Student/EmotionalCheckIn';
 import AccessibilitySettings from './components/Student/AccessibilitySettings';
@@ -196,9 +196,10 @@ export default function App() {
     setCurrentNav('dashboard');
   }, [recordSession, profile.emotionalHistory]);
 
-  // Práctica dirigida de una habilidad débil (ejercicios generados al azar)
+  // Práctica dirigida de una habilidad débil (ejercicios generados al azar,
+  // de cualquier área: matemáticas, dinero, tiempo, medidas, lectura, ciencias)
   const startSkillPractice = useCallback((skillId) => {
-    const lesson = generatePracticeLesson(skillId, 8);
+    const lesson = generateAnyPracticeLesson(skillId, 8);
     if (!lesson) return;
     setLessonParams({ customLesson: lesson, subjectId: 'math', levelId: skillId });
     setView('lesson');

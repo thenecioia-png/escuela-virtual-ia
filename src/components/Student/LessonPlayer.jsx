@@ -5,7 +5,8 @@ import { getLesson } from '../../data/lessons';
 import { SUBJECTS, COLOR_MAP } from '../../data/subjects';
 import { isTutorConfigured, getHint } from '../../lib/tutorApi';
 import { getCountry, getGrade } from '../../lib/curricula';
-import { recordAttempt, inferSkillFromQuestion, getSkillSummaryForTutor } from '../../lib/skillMap';
+import { recordAttempt, inferSkillFromQuestion } from '../../lib/skillMap';
+import { getFullSkillSummaryForTutor } from '../../lib/lifeSkillMap';
 import ProgressRing from './ProgressRing';
 
 export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLesson, learningStyle, profile, adaptiveEngine, onFinish, onHome }) {
@@ -129,7 +130,7 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
       wrongAnswer,
       correctAnswer: item.answer,
       skillId,
-      skillSummary: getSkillSummaryForTutor(profile.id),
+      skillSummary: getFullSkillSummaryForTutor(profile.id),
     }).then((pista) => {
       setLoadingHint(false);
       if (pista) setHint(pista);
@@ -411,6 +412,13 @@ export default function LessonPlayer({ subjectId, levelId, lessonIndex, customLe
             <div className="mb-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
               <p className="text-xs font-bold text-amber-700">🎯 Usa todos tus sentidos:</p>
               <p className="text-xs text-amber-600">{item.multiInstruction}</p>
+            </div>
+          )}
+
+          {item.passage && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 text-left">
+              <p className="text-xs font-black text-amber-600 uppercase tracking-wider mb-1">{item.passageTitle}</p>
+              <p className="text-sm text-forest-800 leading-relaxed">{item.passage}</p>
             </div>
           )}
 

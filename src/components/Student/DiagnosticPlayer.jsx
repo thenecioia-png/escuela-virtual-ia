@@ -9,11 +9,19 @@ import {
   DIAGNOSTIC_MAX_PER_SKILL,
   DIAGNOSTIC_START_INDEX,
 } from '../../lib/skillMap';
+import { LIFE_DIAGNOSTIC_STEPS } from '../../lib/lifeSkillMap';
+
+// Total de preguntas: la ronda adaptativa de mates + 2 por cada área nueva.
+const TOTAL_QUESTIONS = DIAGNOSTIC_MAX_QUESTIONS + LIFE_DIAGNOSTIC_STEPS.length;
 
 // Evaluación diagnóstica adaptativa: empieza fácil y sube/baja de nivel según
 // acierte o falle, hasta ubicar el nivel real en restas y multiplicación.
+// Después hace una ronda corta y fija por las áreas nuevas (dinero, tiempo,
+// medidas, lectura y ciencias) para ubicar el punto de partida de cada una.
 // Cada intento se registra en el mapa de habilidades (localStorage).
 export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
+  const [phase, setPhase] = useState('math'); // 'math' | 'life'
+  const [lifeStep, setLifeStep] = useState(0);
   const [skillIndex, setSkillIndex] = useState(DIAGNOSTIC_START_INDEX);
   const [question, setQuestion] = useState(() => MATH_SKILLS[DIAGNOSTIC_START_INDEX].gen());
   const [skillResults, setSkillResults] = useState({ correct: 0, wrong: 0, asked: 1 });
@@ -29,7 +37,10 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
   // La habilidad más alta donde acertó al menos 2 veces
   const bestSkillIndex = useRef(-1);
 
-  const skill = MATH_SKILLS[skillIndex];
+  const inLife = phase === 'life';
+  const lifeStepData = inLife ? LIFE_DIAGNOSTIC_STEPS[lifeStep] : null;
+  const skill = inLife ? lifeStepData.skill : MATH_SKILLS[skillIndex];
+  const longOptions = question.options.some((o) => String(o).length > 14);
 
   const finish = (correctCount) => {
     setComplete(true);
@@ -52,6 +63,24 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
   };
 
   const handleNext = () => {
+    // Ronda de áreas nuevas: una pregunta fija por paso, sin adaptación.
+    if (inLife) {
+      const nextStep = lifeStep + 1;
+      if (nextStep >= LIFE_DIAGNOSTIC_STEPS.length) {
+        finish(totalCorrect);
+        return;
+      }
+      setLifeStep(nextStep);
+      setLastSkillName(LIFE_DIAGNOSTIC_STEPS[nextStep].area.name);
+      setQuestion(LIFE_DIAGNOSTIC_STEPS[nextStep].skill.gen());
+      setTotalAsked((t) => t + 1);
+      setSelected(null);
+      setShowResult(false);
+      setIsCorrect(false);
+      questionTime.current = Date.now();
+      return;
+    }
+
     const results = {
       correct: skillResults.correct,
       wrong: skillResults.wrong,
@@ -67,9 +96,18 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
     }
     nextIndex = Math.max(0, Math.min(MATH_SKILLS.length - 1, nextIndex));
 
-    const done = totalAsked >= DIAGNOSTIC_MAX_QUESTIONS || (nextIndex !== skillIndex && totalAsked >= DIAGNOSTIC_MAX_QUESTIONS);
+    const done = totalAsked >= DIAGNOSTIC_MAX_QUESTIONS;
     if (done) {
-      finish(totalCorrect);
+      // Terminó la ronda de mates: pasamos a la ronda corta de áreas nuevas.
+      setPhase('life');
+      setLifeStep(0);
+      setLastSkillName(LIFE_DIAGNOSTIC_STEPS[0].area.name);
+      setQuestion(LIFE_DIAGNOSTIC_STEPS[0].skill.gen());
+      setTotalAsked((t) => t + 1);
+      setSelected(null);
+      setShowResult(false);
+      setIsCorrect(false);
+      questionTime.current = Date.now();
       return;
     }
 
@@ -157,7 +195,7 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
           <div>
             <h2 className="font-black text-forest-900 text-lg">Descubre tu camino</h2>
             <p className="text-xs text-forest-400 font-bold">
-              {skill.name} · No es un examen, es un juego para conocerte
+              {inLife ? `${lifeStepData.area.emoji} ${lifeStepData.area.name} · ${skill.name}` : skill.name} · No es un examen, es un juego para conocerte
             </p>
           </div>
         </div>
@@ -169,7 +207,7 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
       <div className="h-3 bg-forest-100 rounded-full overflow-hidden mb-6">
         <motion.div
           className="h-full rounded-full bg-sky-500"
-          animate={{ width: `${(totalAsked / DIAGNOSTIC_MAX_QUESTIONS) * 100}%` }}
+          animate={{ width: `${(totalAsked / TOTAL_QUESTIONS) * 100}%` }}
           transition={{ duration: 0.4 }}
         />
       </div>
@@ -188,9 +226,15 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
               Nueva mini-aventura: {skill.name}
             </p>
           )}
-          <h3 className="text-3xl font-black text-forest-900 mb-6 text-center tracking-wide">{question.q}</h3>
+          {question.passage && (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-5 text-left">
+              <p className="text-xs font-black text-amber-600 uppercase tracking-wider mb-1">{question.passageTitle}</p>
+              <p className="text-sm text-forest-800 leading-relaxed">{question.passage}</p>
+            </div>
+          )}
+          <h3 className={`font-black text-forest-900 mb-6 text-center tracking-wide ${longOptions ? 'text-xl' : 'text-3xl'}`}>{question.q}</h3>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid gap-3 ${longOptions ? 'grid-cols-1' : 'grid-cols-2'}`}>
             {question.options.map((opt) => {
               let btnClass = 'choice-btn bg-white border-2 border-forest-100 text-forest-800 hover:border-sky-300';
               if (showResult) {
@@ -209,7 +253,7 @@ export default function DiagnosticPlayer({ studentId, onFinish, onHome }) {
                   whileTap={!showResult ? { scale: 0.97 } : {}}
                   onClick={() => handleSelect(opt)}
                   disabled={showResult}
-                  className={`p-5 rounded-2xl font-black text-xl text-center transition-all flex items-center justify-center gap-2 ${btnClass}`}
+                  className={`p-5 rounded-2xl transition-all flex items-center justify-center gap-2 ${longOptions ? 'font-bold text-sm text-left' : 'font-black text-xl text-center'} ${btnClass}`}
                 >
                   {showResult && opt === question.answer && <Check size={20} className="text-emerald-600 shrink-0" />}
                   {showResult && opt === selected && !isCorrect && <X size={20} className="text-rose-600 shrink-0" />}
